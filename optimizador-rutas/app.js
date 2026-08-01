@@ -167,7 +167,7 @@ async function geocodeAddress(address) {
 // inputs that actually require a network lookup.
 function resolveSync(raw) {
   const point = parseCoordinates(raw);
-  if (point) return { point: { ...point, label: `${point.lat}, ${point.lng}`, precision: 'exact' }, needsGeocode: false };
+  if (point) return { point: { ...point, label: `${point.lat}, ${point.lng}`, precision: 'input' }, needsGeocode: false };
 
   const address = extractAddressText(raw);
   if (address) return { point: null, needsGeocode: true, address };
@@ -338,9 +338,17 @@ function clearWarning() {
   warningEl.hidden = true;
 }
 
+// `precision` is 'input' for a pasted coordinate/link (always trusted as-is),
+// or 'exact'/'street' for a text address resolved via Nominatim. Even an
+// 'exact' geocode can still land on the wrong street due to bad map data
+// (OpenStreetMap coverage issues are common for smaller towns), so every
+// geocoded point gets a reminder to check it — 'street' gets a stronger one
+// since it's known to only be approximate.
 function routeLineText(p, i) {
   const orderTag = p.order ? `Pedido #${p.order} — ` : '';
-  const precisionTag = p.precision === 'street' ? ' (aproximado: solo se encontró a nivel de calle, revisar)' : '';
+  let precisionTag = '';
+  if (p.precision === 'street') precisionTag = ' (aproximado: solo se encontró a nivel de calle, revisar en el mapa)';
+  else if (p.precision === 'exact') precisionTag = ' (dirección de texto: verificar el pin en el mapa)';
   return i === 0
     ? `Inicio: ${p.label}${precisionTag}`
     : `Parada ${i}: ${orderTag}${p.label}${precisionTag}`;
@@ -353,7 +361,7 @@ function updatePointPosition(pointIndex, newLatLng, li) {
   p.lat = newLatLng.lat;
   p.lng = newLatLng.lng;
   p.label = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)} (ajustado a mano)`;
-  p.precision = 'exact';
+  p.precision = 'input';
   if (li) li.textContent = routeLineText(p, pointIndex);
   mapsLinkEl.href = buildGoogleMapsUrl(currentOrderedPoints, currentRoundtrip);
 }
