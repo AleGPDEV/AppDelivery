@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Compartir ubicación - Delivery</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Compartir mi ubicación</h1>
+    <p class="subtitle">Dejá esta página abierta mientras hacés el reparto. Tu ubicación se actualiza sola en el panel.</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="field">
+        <label for="driver-name">Tu nombre</label>
+        <input type="text" id="driver-name" placeholder="Ej: Juan">
+      </div>
+
+      <button id="toggle-btn" type="button" class="primary">Empezar a compartir ubicación</button>
+      <p id="status" class="status"></p>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="driver.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "tracking-en-vivo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Panel de ubicacion en vivo de los deliverys",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
