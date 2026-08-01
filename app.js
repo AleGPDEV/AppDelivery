@@ -9,6 +9,8 @@ const mapsLinkEl = document.getElementById('maps-link');
 
 let map = null;
 let mapLayer = null;
+let currentOrderedPoints = [];
+let currentRoundtrip = false;
 
 // Parses one line as "<order number><separator><location>", where the separator
 // is whitespace (including a pasted-from-spreadsheet tab) and/or a comma. If a
@@ -74,8 +76,15 @@ const NOMINATIM_DELAY_MS = 1000; // Nominatim's usage policy caps public request
 // on administrative-division phrasing (e.g. "Departamento de Canelones" instead of
 // just "Canelones"), and on private venue/complex names that simply aren't mapped
 // in OpenStreetMap (e.g. "Complejo Palmas del Norte"). Try the address as-is, then
-// progressively simplified variants — including dropping the most specific leading
-// segments, which is usually the unmapped venue name — stopping at the first match.
+// progressively simplified variants, from most to least specific:
+//   1. as typed
+//   2. with titles/region-prefixes stripped
+//   3. same, but without the house number (in case only the street is mapped)
+//   4. with the leading segment dropped (handles an unmapped venue/complex name),
+//      also tried without its house number
+// A later, more aggressive variant is only used if every earlier (more specific)
+// one truly finds nothing — see geocodeAddress's specificity check below, which
+// keeps searching rather than accepting an overly broad match (e.g. a whole city).
 function addressVariants(address) {
   const normalized = address
     .replace(/\b(Dr|Dra|Sr|Sra|Lic|Ing|Prof)\.?\s*/gi, '')
@@ -84,28 +93,58 @@ function addressVariants(address) {
 
   const variants = [address, normalized];
 
+  const withoutHouseNumber = (s) => s.replace(/\b\d+\b,?\s*/, '').trim();
+  const noHouseNumber = withoutHouseNumber(normalized);
+  if (noHouseNumber && noHouseNumber !== normalized) variants.push(noHouseNumber);
+
   const segments = normalized.split(',').map(s => s.trim()).filter(Boolean);
   for (let drop = 1; drop <= segments.length - 2; drop++) {
-    variants.push(segments.slice(drop).join(', '));
+    const dropped = segments.slice(drop).join(', ');
+    variants.push(dropped);
+    const droppedNoNumber = withoutHouseNumber(dropped);
+    if (droppedNoNumber && droppedNoNumber !== dropped) variants.push(droppedNoNumber);
   }
-
-  // Also try every variant above without its leading house number.
-  Array.from(variants).forEach((v) => {
-    const noHouseNumber = v.replace(/\b\d+\b,?\s*/, '').trim();
-    if (noHouseNumber) variants.push(noHouseNumber);
-  });
 
   return [...new Set(variants)].filter(Boolean);
 }
 
+// Nominatim place types that are too broad to use as a delivery location —
+// a match at this level means it only recognized the city/region, not the
+// actual street or address, and silently using it would drop the pin far
+// from the real destination.
+const TOO_COARSE_TYPES = new Set([
+  'city', 'town', 'village', 'suburb', 'municipality', 'county', 'state',
+  'country', 'administrative', 'state_district', 'region',
+]);
+
+function bboxDiagonalKm(boundingbox) {
+  const [south, north, west, east] = boundingbox.map(parseFloat);
+  return haversineKm({ lat: south, lng: west }, { lat: north, lng: east });
+}
+
+// Classifies how much to trust a match: 'exact' for a specific building/house,
+// 'street' for a road-level match (no house-number precision, but still a
+// specific street), or null if the match is too coarse (city/region level or
+// an unexpectedly large bounding box) to safely use.
+function classifyPrecision(result) {
+  if (result.class === 'boundary' || TOO_COARSE_TYPES.has(result.type)) return null;
+  if (result.boundingbox && bboxDiagonalKm(result.boundingbox) > 3) return null;
+  if (result.class === 'building' || result.type === 'house') return 'exact';
+  return 'street';
+}
+
 async function geocodeOnce(query) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`;
   const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
   if (!res.ok) throw new Error('geocode-request-failed');
   const data = await res.json();
-  return (data && data.length > 0)
-    ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
-    : null;
+  if (!data || data.length === 0) return null;
+
+  const result = data[0];
+  const precision = classifyPrecision(result);
+  if (!precision) return null; // too coarse (e.g. matched only the city) — keep trying other variants
+
+  return { lat: parseFloat(result.lat), lng: parseFloat(result.lon), precision };
 }
 
 async function geocodeAddress(address) {
@@ -128,7 +167,7 @@ async function geocodeAddress(address) {
 // inputs that actually require a network lookup.
 function resolveSync(raw) {
   const point = parseCoordinates(raw);
-  if (point) return { point: { ...point, label: `${point.lat}, ${point.lng}` }, needsGeocode: false };
+  if (point) return { point: { ...point, label: `${point.lat}, ${point.lng}`, precision: 'exact' }, needsGeocode: false };
 
   const address = extractAddressText(raw);
   if (address) return { point: null, needsGeocode: true, address };
@@ -154,7 +193,7 @@ async function resolveInput(raw, label) {
     throw new Error(`Falló la búsqueda de la dirección de ${label} ("${address}"). Revisá tu conexión e intentá de nuevo.`);
   }
   if (!geocoded) {
-    throw new Error(`No se encontró la dirección de ${label}: "${address}". Probá con más detalle (calle, ciudad, país).`);
+    throw new Error(`No se encontró con suficiente precisión la dirección de ${label}: "${address}". Abrila en Google Maps, tocá y mantené presionado el punto exacto para soltar un pin, y pegá esas coordenadas acá en vez de la dirección de texto.`);
   }
   return { ...geocoded, label: address };
 }
@@ -299,10 +338,32 @@ function clearWarning() {
   warningEl.hidden = true;
 }
 
-// Draws the route on the map. `routeLatLngs`, when available, is the real
-// street-following polyline from OSRM; otherwise falls back to straight
-// lines between the ordered stops.
-function renderMap(orderedPoints, routeLatLngs) {
+function routeLineText(p, i) {
+  const orderTag = p.order ? `Pedido #${p.order} — ` : '';
+  const precisionTag = p.precision === 'street' ? ' (aproximado: solo se encontró a nivel de calle, revisar)' : '';
+  return i === 0
+    ? `Inicio: ${p.label}${precisionTag}`
+    : `Parada ${i}: ${orderTag}${p.label}${precisionTag}`;
+}
+
+// After dragging a pin to correct its position, treat the new spot as exact,
+// refresh its list label, and regenerate the Google Maps link immediately.
+function updatePointPosition(pointIndex, newLatLng, li) {
+  const p = currentOrderedPoints[pointIndex];
+  p.lat = newLatLng.lat;
+  p.lng = newLatLng.lng;
+  p.label = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)} (ajustado a mano)`;
+  p.precision = 'exact';
+  if (li) li.textContent = routeLineText(p, pointIndex);
+  mapsLinkEl.href = buildGoogleMapsUrl(currentOrderedPoints, currentRoundtrip);
+}
+
+// Draws the route on the map. `orderedPoints` (the unique visited stops, in
+// order) gets one draggable marker each — dragging corrects a wrong geocode
+// and updates the Google Maps link instantly. `routeLatLngs`, when available,
+// is the real street-following polyline from OSRM; otherwise falls back to
+// straight lines between the stops.
+function renderMap(orderedPoints, routeLatLngs, liEls) {
   const el = document.getElementById('map');
   if (map) {
     map.remove();
@@ -314,7 +375,8 @@ function renderMap(orderedPoints, routeLatLngs) {
 
   orderedPoints.forEach((p, i) => {
     const label = i === 0 ? 'Inicio' : `Parada ${i}${p.order ? ` (Pedido #${p.order})` : ''}`;
-    L.marker([p.lat, p.lng]).addTo(map).bindPopup(label);
+    const marker = L.marker([p.lat, p.lng], { draggable: true }).addTo(map).bindPopup(label);
+    marker.on('dragend', (e) => updatePointPosition(i, e.target.getLatLng(), liEls[i]));
   });
 
   const latlngs = routeLatLngs || orderedPoints.map(p => [p.lat, p.lng]);
@@ -386,14 +448,11 @@ calculateBtn.addEventListener('click', async () => {
     }
 
     routeListEl.innerHTML = '';
-    const startLi = document.createElement('li');
-    startLi.textContent = `Inicio: ${start.label}`;
-    routeListEl.appendChild(startLi);
-    orderedPoints.slice(1).forEach((p, idx) => {
+    const liEls = orderedPoints.map((p, i) => {
       const li = document.createElement('li');
-      const orderTag = p.order ? `Pedido #${p.order} — ` : '';
-      li.textContent = `Parada ${idx + 1}: ${orderTag}${p.label}`;
+      li.textContent = routeLineText(p, i);
       routeListEl.appendChild(li);
+      return li;
     });
     if (roundtrip) {
       const backLi = document.createElement('li');
@@ -416,10 +475,13 @@ calculateBtn.addEventListener('click', async () => {
       }
     }
 
+    currentOrderedPoints = orderedPoints;
+    currentRoundtrip = roundtrip;
     mapsLinkEl.href = buildGoogleMapsUrl(orderedPoints, roundtrip);
 
     resultsEl.hidden = false;
-    renderMap(routeForGeometry, routeInfo ? routeInfo.latlngs : null);
+    const fallbackLatLngs = routeForGeometry.map(p => [p.lat, p.lng]);
+    renderMap(orderedPoints, routeInfo ? routeInfo.latlngs : fallbackLatLngs, liEls);
   } catch (e) {
     showError(e.message);
   } finally {
