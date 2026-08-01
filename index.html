@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optimizador de Rutas de Delivery</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Optimizador de Rutas de Delivery</h1>
+    <p class="subtitle">Cargá el punto de partida y las paradas (coordenadas, links de Google Maps o direcciones de texto) y obtené el recorrido más eficiente siguiendo las calles reales.</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="field">
+        <label for="start">Punto de partida (depósito o ubicación actual)</label>
+        <input type="text" id="start" placeholder="Ej: -34.6037,-58.3816, un link de Google Maps o una dirección">
+      </div>
+
+      <div class="field checkbox-field">
+        <input type="checkbox" id="roundtrip">
+        <label for="roundtrip">Volver al punto de partida al final</label>
+      </div>
+
+      <div class="field">
+        <label for="stops-text">Pedidos (uno por línea: número de pedido + ubicación)</label>
+        <textarea id="stops-text" rows="8" placeholder="99&#9;https://www.google.com/maps?q=-34.7599,-56.0083&#10;3&#9;https://www.google.com/maps?q=-34.7067,-55.9607&#10;6&#9;Complejo Palmas del Norte, Ruta 75, Pando, Uruguay"></textarea>
+        <p class="hint">Una parada por línea: número de pedido, separado por tabulación, coma o espacio, y la ubicación (coordenadas, link de Google Maps o dirección). Podés pegar directo desde una planilla.</p>
+      </div>
+
+      <div class="actions">
+        <button id="calculate" type="button" class="primary">Calcular ruta óptima</button>
+      </div>
+
+      <p id="error" class="error" hidden></p>
+    </section>
+
+    <section id="results" class="panel" hidden>
+      <h2>Recorrido sugerido</h2>
+      <p id="warning" class="warning" hidden></p>
+      <ol id="route-list"></ol>
+      <p id="distance-summary"></p>
+      <a id="maps-link" href="#" target="_blank" rel="noopener" class="primary maps-button">Abrir en Google Maps</a>
+      <div id="map"></div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
