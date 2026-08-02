@@ -8,6 +8,7 @@ const mapsLinkEl = document.getElementById('maps-link');
 
 const DRIVER_ID_KEY = 'tracking.driverId';
 const DRIVER_NAME_KEY = 'tracking.driverName';
+const SHARING_KEY = 'tracking.sharing';
 
 function getDriverId() {
   let id = localStorage.getItem(DRIVER_ID_KEY);
@@ -26,6 +27,8 @@ let watchId = null;
 
 // orderId -> { orderNumber, label, assignedTo, ... }, filtered to this driver's own pedidos
 const myOrders = new Map();
+// Order ids in the optimal visiting sequence, from the last computed route.
+let myRouteOrder = [];
 
 function setStatus(text, kind) {
   statusEl.textContent = text;
@@ -34,22 +37,36 @@ function setStatus(text, kind) {
 
 function renderOrders() {
   const mine = Array.from(myOrders.entries()).filter(([, o]) => o.assignedTo === driverId);
+  // Sort by the optimal route sequence when we have one; anything not in it
+  // yet (just assigned, route not recomputed) falls to the end.
+  mine.sort(([idA], [idB]) => {
+    const posA = myRouteOrder.indexOf(idA);
+    const posB = myRouteOrder.indexOf(idB);
+    if (posA === -1 && posB === -1) return 0;
+    if (posA === -1) return 1;
+    if (posB === -1) return -1;
+    return posA - posB;
+  });
+
   ordersSectionEl.hidden = mine.length === 0;
   if (mine.length === 0) return;
 
   routeSummaryEl.textContent = `${mine.length} pedido${mine.length === 1 ? '' : 's'} asignado${mine.length === 1 ? '' : 's'}.`;
 
   ordersListEl.innerHTML = '';
-  mine.forEach(([id, o]) => {
+  mine.forEach(([id, o], idx) => {
     const li = document.createElement('li');
     const info = document.createElement('span');
     info.className = 'order-info';
-    info.textContent = `#${o.orderNumber || '?'} — ${o.label}`;
+    info.textContent = `${idx + 1}. #${o.orderNumber || '?'} — ${o.label}`;
     const doneBtn = document.createElement('button');
     doneBtn.type = 'button';
     doneBtn.className = 'danger small';
     doneBtn.textContent = 'Entregado';
-    doneBtn.addEventListener('click', () => socket.emit('order:delivered', { id }));
+    doneBtn.addEventListener('click', () => {
+      socket.emit('order:delivered', { id });
+      recomputeMyRoute();
+    });
     li.appendChild(info);
     li.appendChild(doneBtn);
     ordersListEl.appendChild(li);
@@ -64,6 +81,9 @@ socket.on('routes:snapshot', (list) => { const mine = list.find((r) => r.driverI
 socket.on('driver:route', (r) => { if (r.driverId === driverId) renderRoute(r); });
 
 function renderRoute(r) {
+  myRouteOrder = (r.stops || []).map((s) => s.id);
+  renderOrders();
+
   if (!r.stops || r.stops.length === 0) {
     mapsLinkEl.hidden = true;
     return;
@@ -79,6 +99,35 @@ function renderRoute(r) {
   }
   mapsLinkEl.href = Geo.buildGoogleMapsUrl([lastPosition, ...r.stops], false);
   mapsLinkEl.hidden = false;
+}
+
+// Recomputes this driver's own optimal route from their remaining assigned
+// pedidos. Normally the admin screen does this on assignment changes, but it
+// might not be open when a delivery is marked done here, so the driver
+// recomputes it themselves too — keeps the order (and the Maps link) current
+// without depending on anyone else's tab being open.
+async function recomputeMyRoute() {
+  const assigned = Array.from(myOrders.values()).filter((o) => o.assignedTo === driverId);
+  if (assigned.length === 0) {
+    socket.emit('driver:route', { driverId, stops: [], latlngs: [] });
+    return;
+  }
+  if (!lastPosition) return;
+
+  const stops = assigned.map((o) => ({ id: o.id, lat: o.lat, lng: o.lng, label: o.label, orderNumber: o.orderNumber }));
+  try {
+    const result = await Geo.computeRoute(lastPosition, stops);
+    const orderedStops = result.orderedPoints.slice(1).map((p) => ({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, orderNumber: p.orderNumber }));
+    socket.emit('driver:route', {
+      driverId,
+      stops: orderedStops,
+      latlngs: result.latlngs,
+      distanceKm: result.distanceKm,
+      durationMin: result.durationMin,
+    });
+  } catch (e) {
+    // best-effort — if OSRM is briefly unreachable, the previous order stays displayed
+  }
 }
 
 let lastPosition = null;
@@ -110,6 +159,7 @@ function startSharing() {
   }
 
   localStorage.setItem(DRIVER_NAME_KEY, nameInput.value.trim());
+  localStorage.setItem(SHARING_KEY, '1');
 
   watchId = navigator.geolocation.watchPosition(
     sendPosition,
@@ -129,6 +179,7 @@ function stopSharing() {
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
   }
+  localStorage.removeItem(SHARING_KEY);
   socket.emit('driver:stop', { id: driverId });
   toggleBtn.textContent = 'Empezar a compartir ubicación';
   toggleBtn.classList.remove('danger');
@@ -142,6 +193,11 @@ toggleBtn.addEventListener('click', () => {
   else stopSharing();
 });
 
-window.addEventListener('beforeunload', () => {
-  if (watchId !== null) socket.emit('driver:stop', { id: driverId });
-});
+// Only an explicit "Dejar de compartir" click stops sharing. Closing the tab,
+// losing signal, or the OS killing a backgrounded page does NOT — the driver
+// just keeps showing at their last known position (the server drops them
+// after 5 min with no update regardless) until they come back, at which point
+// this resumes automatically without needing the button pressed again.
+if (localStorage.getItem(SHARING_KEY) === '1' && localStorage.getItem(DRIVER_NAME_KEY)) {
+  startSharing();
+}
