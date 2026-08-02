@@ -1,0 +1,289 @@
+// Shared geocoding + route-optimization library, ported from optimizador-rutas/app.js.
+// Pure functions plus a couple of network calls — no DOM/UI coupling, so both
+// admin.js and driver.js can use it directly.
+const Geo = (() => {
+  function parseStopLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    const m = trimmed.match(/^([^\s,]+)[\s,]+(.+)$/);
+    if (m) return { order: m[1], raw: m[2].trim() };
+    return { order: '', raw: trimmed };
+  }
+
+  function parseStopsText(text) {
+    return text.split('\n').map(parseStopLine).filter(Boolean);
+  }
+
+  function parseCoordinates(raw) {
+    const text = raw.trim();
+    if (!text) return null;
+
+    let m = text.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+
+    m = text.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+
+    m = text.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+
+    m = text.match(/^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+
+    return null;
+  }
+
+  function extractAddressText(raw) {
+    const text = raw.trim();
+    const qMatch = text.match(/[?&]q=([^&]+)/);
+    if (qMatch) return decodeURIComponent(qMatch[1].replace(/\+/g, ' '));
+    if (!/^https?:\/\//i.test(text)) return text;
+    return null;
+  }
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const geocodeCache = new Map();
+  const NOMINATIM_DELAY_MS = 1000;
+
+  function addressVariants(address) {
+    const normalized = address
+      .replace(/\b(Dr|Dra|Sr|Sra|Lic|Ing|Prof)\.?\s*/gi, '')
+      .replace(/\b(Departamento|Provincia|Estado|Municipio) de\s+/gi, '')
+      .trim();
+
+    const variants = [address, normalized];
+
+    const withoutHouseNumber = (s) => s.replace(/\b\d+\b,?\s*/, '').trim();
+    const noHouseNumber = withoutHouseNumber(normalized);
+    if (noHouseNumber && noHouseNumber !== normalized) variants.push(noHouseNumber);
+
+    const segments = normalized.split(',').map(s => s.trim()).filter(Boolean);
+    for (let drop = 1; drop <= segments.length - 2; drop++) {
+      const dropped = segments.slice(drop).join(', ');
+      variants.push(dropped);
+      const droppedNoNumber = withoutHouseNumber(dropped);
+      if (droppedNoNumber && droppedNoNumber !== dropped) variants.push(droppedNoNumber);
+    }
+
+    return [...new Set(variants)].filter(Boolean);
+  }
+
+  const TOO_COARSE_TYPES = new Set([
+    'city', 'town', 'village', 'suburb', 'municipality', 'county', 'state',
+    'country', 'administrative', 'state_district', 'region',
+  ]);
+
+  function bboxDiagonalKm(boundingbox) {
+    const [south, north, west, east] = boundingbox.map(parseFloat);
+    return haversineKm({ lat: south, lng: west }, { lat: north, lng: east });
+  }
+
+  function classifyPrecision(result) {
+    if (result.class === 'boundary' || TOO_COARSE_TYPES.has(result.type)) return null;
+    if (result.boundingbox && bboxDiagonalKm(result.boundingbox) > 3) return null;
+    if (result.class === 'building' || result.type === 'house') return 'exact';
+    return 'street';
+  }
+
+  async function geocodeOnce(query) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+    if (!res.ok) throw new Error('geocode-request-failed');
+    const data = await res.json();
+    if (!data || data.length === 0) return null;
+
+    const result = data[0];
+    const precision = classifyPrecision(result);
+    if (!precision) return null;
+
+    return { lat: parseFloat(result.lat), lng: parseFloat(result.lon), precision };
+  }
+
+  async function geocodeAddress(address) {
+    if (geocodeCache.has(address)) return geocodeCache.get(address);
+
+    const variants = addressVariants(address);
+    let result = null;
+    for (let i = 0; i < variants.length; i++) {
+      if (i > 0) await sleep(NOMINATIM_DELAY_MS);
+      result = await geocodeOnce(variants[i]);
+      if (result) break;
+    }
+
+    geocodeCache.set(address, result);
+    return result;
+  }
+
+  function resolveSync(raw) {
+    const point = parseCoordinates(raw);
+    if (point) return { point: { ...point, label: `${point.lat}, ${point.lng}`, precision: 'input' }, needsGeocode: false };
+
+    const address = extractAddressText(raw);
+    if (address) return { point: null, needsGeocode: true, address };
+
+    return { point: null, needsGeocode: false };
+  }
+
+  // `onProgress(message)` is optional — called while a geocode lookup is in flight.
+  async function resolveInput(raw, label, onProgress) {
+    const { point, needsGeocode, address } = resolveSync(raw);
+    if (point) return point;
+    if (!needsGeocode) {
+      throw new Error(`No se pudo interpretar ${label}: "${raw}". Los links cortos (maps.app.goo.gl) no se pueden leer directamente; abrilos y copiá el link completo, la dirección de texto o las coordenadas.`);
+    }
+
+    if (onProgress) onProgress(`Buscando dirección: "${address.slice(0, 40)}"...`);
+    let geocoded;
+    try {
+      geocoded = await geocodeAddress(address);
+    } catch (e) {
+      throw new Error(`Falló la búsqueda de la dirección de ${label} ("${address}"). Revisá tu conexión e intentá de nuevo.`);
+    }
+    if (!geocoded) {
+      throw new Error(`No se encontró con suficiente precisión la dirección de ${label}: "${address}". Abrila en Google Maps, tocá y mantené presionado el punto exacto para soltar un pin, y pegá esas coordenadas acá en vez de la dirección de texto.`);
+    }
+    return { ...geocoded, label: address };
+  }
+
+  function haversineKm(a, b) {
+    const R = 6371;
+    const dLat = (b.lat - a.lat) * Math.PI / 180;
+    const dLng = (b.lng - a.lng) * Math.PI / 180;
+    const lat1 = a.lat * Math.PI / 180;
+    const lat2 = b.lat * Math.PI / 180;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  const OSRM_BASE = 'https://router.project-osrm.org';
+
+  async function fetchDrivingMatrix(points) {
+    const coordStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+    const res = await fetch(`${OSRM_BASE}/table/v1/driving/${coordStr}?annotations=distance`);
+    if (!res.ok) throw new Error('osrm-table-failed');
+    const data = await res.json();
+    if (data.code !== 'Ok') throw new Error('osrm-table-failed');
+    return data.distances;
+  }
+
+  async function fetchDrivingRoute(orderedPoints) {
+    const coordStr = orderedPoints.map(p => `${p.lng},${p.lat}`).join(';');
+    const res = await fetch(`${OSRM_BASE}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`);
+    if (!res.ok) throw new Error('osrm-route-failed');
+    const data = await res.json();
+    if (data.code !== 'Ok') throw new Error('osrm-route-failed');
+    const route = data.routes[0];
+    return {
+      latlngs: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      distanceKm: route.distance / 1000,
+      durationMin: route.duration / 60,
+    };
+  }
+
+  function tourLength(order, dist, roundtrip) {
+    let total = 0;
+    for (let i = 0; i < order.length - 1; i++) total += dist(order[i], order[i + 1]);
+    if (roundtrip) total += dist(order[order.length - 1], order[0]);
+    return total;
+  }
+
+  function optimizeOrder(n, dist, roundtrip) {
+    const visited = new Array(n).fill(false);
+    const order = [0];
+    visited[0] = true;
+
+    for (let step = 1; step < n; step++) {
+      const last = order[order.length - 1];
+      let best = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < n; i++) {
+        if (!visited[i]) {
+          const d = dist(last, i);
+          if (d < bestDist) { bestDist = d; best = i; }
+        }
+      }
+      order.push(best);
+      visited[best] = true;
+    }
+
+    let improved = true;
+    while (improved) {
+      improved = false;
+      for (let i = 1; i < order.length - 1; i++) {
+        for (let j = i + 1; j < order.length; j++) {
+          const candidate = order.slice(0, i).concat(order.slice(i, j + 1).reverse(), order.slice(j + 1));
+          if (tourLength(candidate, dist, roundtrip) < tourLength(order, dist, roundtrip) - 1e-9) {
+            order.splice(0, order.length, ...candidate);
+            improved = true;
+          }
+        }
+      }
+    }
+
+    return order;
+  }
+
+  function buildGoogleMapsUrl(orderedPoints, roundtrip) {
+    const fmt = (p) => `${p.lat},${p.lng}`;
+    const origin = orderedPoints[0];
+    let destination, waypoints;
+
+    if (roundtrip) {
+      destination = origin;
+      waypoints = orderedPoints.slice(1);
+    } else {
+      destination = orderedPoints[orderedPoints.length - 1];
+      waypoints = orderedPoints.slice(1, -1);
+    }
+
+    const params = new URLSearchParams({ api: '1', origin: fmt(origin), destination: fmt(destination), travelmode: 'driving' });
+    let url = `https://www.google.com/maps/dir/?${params.toString()}`;
+    if (waypoints.length > 0) url += `&waypoints=${waypoints.map(fmt).join('|')}`;
+    return url;
+  }
+
+  // Computes the optimal visiting order (real driving distances when available,
+  // straight-line as a fallback) for `start` followed by `stops`, and the real
+  // route geometry through OSRM. Returns null latlngs/distanceKm/durationMin
+  // when OSRM is unreachable — caller should fall back to a straight polyline.
+  async function computeRoute(start, stops) {
+    const points = [start, ...stops];
+    let distFn;
+    let usedRealDistances = true;
+    try {
+      const matrixMeters = await fetchDrivingMatrix(points);
+      distFn = (i, j) => matrixMeters[i][j] / 1000;
+    } catch (e) {
+      usedRealDistances = false;
+      distFn = (i, j) => haversineKm(points[i], points[j]);
+    }
+
+    const order = optimizeOrder(points.length, distFn, false);
+    const orderedPoints = order.map(i => points[i]);
+
+    let routeInfo = null;
+    if (usedRealDistances) {
+      try {
+        routeInfo = await fetchDrivingRoute(orderedPoints);
+      } catch (e) {
+        // order is still real-distance-based; only the drawn geometry falls back
+      }
+    }
+
+    return {
+      orderedPoints,
+      usedRealDistances,
+      latlngs: routeInfo ? routeInfo.latlngs : orderedPoints.map(p => [p.lat, p.lng]),
+      distanceKm: routeInfo ? routeInfo.distanceKm : tourLength(order, distFn, false),
+      durationMin: routeInfo ? routeInfo.durationMin : null,
+      isRealDistance: !!routeInfo,
+    };
+  }
+
+  return {
+    parseStopLine, parseStopsText, parseCoordinates, extractAddressText,
+    resolveSync, resolveInput, haversineKm, buildGoogleMapsUrl, computeRoute,
+    sleep, NOMINATIM_DELAY_MS,
+  };
+})();

@@ -22,9 +22,17 @@
       <button id="toggle-btn" type="button" class="primary">Empezar a compartir ubicación</button>
       <p id="status" class="status"></p>
     </section>
+
+    <section id="orders-section" class="panel" hidden>
+      <h2>Tus pedidos</h2>
+      <p id="route-summary" class="driver-count"></p>
+      <a id="maps-link" href="#" target="_blank" rel="noopener" class="primary maps-button" hidden>Abrir ruta en Google Maps</a>
+      <ul id="orders-list" class="order-list"></ul>
+    </section>
   </main>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="geo.js"></script>
   <script src="driver.js"></script>
 </body>
 </html>
