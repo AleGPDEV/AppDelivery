@@ -9,10 +9,31 @@
 <body>
   <header>
     <h1>Deliverys en vivo</h1>
-    <p class="subtitle">Se actualiza solo a medida que cada delivery comparte su ubicación. <a href="admin.html">Cargar y asignar pedidos</a></p>
+    <p class="subtitle">Cargá y asigná pedidos, y mirá cómo se mueven tus deliverys en el mapa, todo en un solo lugar.</p>
   </header>
 
   <main>
+    <section class="panel">
+      <h2>Deliverys conectados</h2>
+      <ul id="driver-list" class="driver-list"></ul>
+    </section>
+
+    <section class="panel">
+      <div class="field">
+        <label for="stops-text">Pedidos nuevos (uno por línea: número de pedido + ubicación)</label>
+        <textarea id="stops-text" rows="6" placeholder="99&#9;https://www.google.com/maps?q=-34.7599,-56.0083&#10;3&#9;https://www.google.com/maps?q=-34.7067,-55.9607&#10;6&#9;Complejo Palmas del Norte, Ruta 75, Pando, Uruguay"></textarea>
+        <p class="hint">Podés pegar directo desde una planilla. Los que se resuelvan bien se agregan a la lista de abajo; si alguno falla, se avisa y el resto sigue cargando igual.</p>
+      </div>
+      <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
+      <p id="load-status" class="status"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Pedidos</h2>
+      <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
+      <ul id="order-list" class="order-list"></ul>
+    </section>
+
     <section class="panel">
       <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
       <div id="map"></div>
@@ -20,6 +41,7 @@
   </main>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="dashboard.js?v=2"></script>
+  <script src="geo.js?v=3"></script>
+  <script src="dashboard.js?v=3"></script>
 </body>
 </html>

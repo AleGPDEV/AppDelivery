@@ -126,5 +126,4 @@ server.listen(PORT, () => {
   console.log(`Tracking en vivo corriendo en http://localhost:${PORT}`);
   console.log(`Delivery: http://localhost:${PORT}/driver.html`);
   console.log(`Panel:    http://localhost:${PORT}/dashboard.html`);
-  console.log(`Admin:    http://localhost:${PORT}/admin.html`);
 });

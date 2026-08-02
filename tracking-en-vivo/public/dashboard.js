@@ -1,4 +1,10 @@
 const driverCountEl = document.getElementById('driver-count');
+const driverListEl = document.getElementById('driver-list');
+const stopsTextEl = document.getElementById('stops-text');
+const loadBtn = document.getElementById('load-btn');
+const loadStatusEl = document.getElementById('load-status');
+const orderListEl = document.getElementById('order-list');
+const orderCountEl = document.getElementById('order-count');
 
 // Same key as geo.js — protected by HTTP referrer + API restriction in Google
 // Cloud Console, not by secrecy (see optimizador-rutas/README.md).
@@ -57,8 +63,15 @@ function orderColor(drivers, o) {
   return (o.assignedTo && drivers.has(o.assignedTo)) ? drivers.get(o.assignedTo).color : UNASSIGNED_COLOR;
 }
 
+function orderPrecisionTag(o) {
+  if (o.precision === 'street') return ' (aproximado: a nivel de calle, revisar)';
+  if (o.precision === 'exact') return ' (verificar pin en el mapa)';
+  return '';
+}
+
 async function main() {
   const maps = await loadGoogleMaps();
+  const socket = io();
 
   const map = new maps.Map(document.getElementById('map'), {
     center: { lat: -34.9011, lng: -56.1645 },
@@ -74,7 +87,14 @@ async function main() {
   const drivers = new Map();
   const orders = new Map();
   const routeLines = new Map(); // driverId -> google.maps.Polyline
+  const knownDriverNames = new Map(); // survives a driver going offline, so old assignments still show a name
   let hasFitBounds = false;
+
+  function driverLabel(id) {
+    const d = drivers.get(id);
+    if (d) return d.name;
+    return knownDriverNames.get(id) || 'delivery desconectado';
+  }
 
   function fitBoundsToEverything() {
     const points = [
@@ -97,6 +117,101 @@ async function main() {
       : `${drivers.size} delivery${drivers.size === 1 ? '' : 's'} en línea.`;
   }
 
+  function renderDrivers() {
+    driverListEl.innerHTML = '';
+    if (drivers.size === 0) {
+      driverListEl.innerHTML = '<li class="empty">Ningún delivery está compartiendo su ubicación ahora mismo.</li>';
+      return;
+    }
+    drivers.forEach((d) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="swatch" style="background:${d.color}"></span> ${d.name}`;
+      driverListEl.appendChild(li);
+    });
+  }
+
+  function renderOrders() {
+    orderListEl.innerHTML = '';
+    orderCountEl.textContent = orders.size === 0
+      ? 'Todavía no cargaste ningún pedido.'
+      : `${orders.size} pedido${orders.size === 1 ? '' : 's'} pendiente${orders.size === 1 ? '' : 's'}.`;
+
+    const sorted = Array.from(orders.entries()).sort((a, b) => (a[1].orderNumber || '').localeCompare(b[1].orderNumber || '', undefined, { numeric: true }));
+
+    sorted.forEach(([id, o]) => {
+      const li = document.createElement('li');
+
+      const info = document.createElement('span');
+      info.className = 'order-info';
+      info.textContent = `#${o.orderNumber || '?'} — ${o.label}${orderPrecisionTag(o)}`;
+
+      const select = document.createElement('select');
+      const noneOpt = document.createElement('option');
+      noneOpt.value = '';
+      noneOpt.textContent = 'Sin asignar';
+      select.appendChild(noneOpt);
+      drivers.forEach((d, driverId) => {
+        const opt = document.createElement('option');
+        opt.value = driverId;
+        opt.textContent = d.name;
+        select.appendChild(opt);
+      });
+      if (o.assignedTo && !drivers.has(o.assignedTo)) {
+        const opt = document.createElement('option');
+        opt.value = o.assignedTo;
+        opt.textContent = `${driverLabel(o.assignedTo)} (desconectado)`;
+        select.appendChild(opt);
+      }
+      select.value = o.assignedTo || '';
+      select.addEventListener('change', () => assignOrder(id, select.value || null));
+
+      li.appendChild(info);
+      li.appendChild(select);
+      orderListEl.appendChild(li);
+    });
+  }
+
+  function assignOrder(orderId, driverId) {
+    const order = orders.get(orderId);
+    const previousDriverId = order ? order.assignedTo : null;
+    socket.emit('order:assign', { id: orderId, driverId });
+    if (order) order.assignedTo = driverId;
+    renderOrders();
+    recomputeRouteForDriver(previousDriverId);
+    recomputeRouteForDriver(driverId);
+  }
+
+  // Recomputes and broadcasts the optimal route for everything currently
+  // assigned to this driver, starting from their last known live position.
+  async function recomputeRouteForDriver(driverId) {
+    if (!driverId) return;
+    const driver = drivers.get(driverId);
+    if (!driver) return;
+
+    const assigned = Array.from(orders.entries())
+      .filter(([, o]) => o.assignedTo === driverId)
+      .map(([id, o]) => ({ id, lat: o.lat, lng: o.lng, label: o.label, orderNumber: o.orderNumber }));
+
+    if (assigned.length === 0) {
+      socket.emit('driver:route', { driverId, stops: [], latlngs: [] });
+      return;
+    }
+
+    try {
+      const result = await Geo.computeRoute({ lat: driver.lat, lng: driver.lng }, assigned);
+      const stops = result.orderedPoints.slice(1).map((p) => ({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, orderNumber: p.orderNumber }));
+      socket.emit('driver:route', {
+        driverId,
+        stops,
+        latlngs: result.latlngs,
+        distanceKm: result.distanceKm,
+        durationMin: result.durationMin,
+      });
+    } catch (e) {
+      // Best-effort: if OSRM is briefly unreachable, the previous route stays displayed.
+    }
+  }
+
   function refreshOrderColorsFor(driverId) {
     orders.forEach((o) => {
       if (o.assignedTo === driverId) {
@@ -107,6 +222,7 @@ async function main() {
   }
 
   function upsertDriver(d) {
+    knownDriverNames.set(d.id, d.name);
     const existing = drivers.get(d.id);
     if (existing) {
       Object.assign(existing, d);
@@ -122,6 +238,8 @@ async function main() {
       fitBoundsToEverything();
     }
     updateCount();
+    renderDrivers();
+    renderOrders();
     refreshOrderColorsFor(d.id);
   }
 
@@ -134,6 +252,8 @@ async function main() {
     const line = routeLines.get(id);
     if (line) { line.setMap(null); routeLines.delete(id); }
     updateCount();
+    renderDrivers();
+    renderOrders();
   }
 
   function upsertOrder(o) {
@@ -152,6 +272,7 @@ async function main() {
       orders.set(o.id, { ...o, marker, infoWindow });
       fitBoundsToEverything();
     }
+    renderOrders();
   }
 
   function removeOrderPin(id) {
@@ -160,6 +281,7 @@ async function main() {
       existing.marker.setMap(null);
       orders.delete(id);
     }
+    renderOrders();
   }
 
   function upsertRoute(r) {
@@ -183,8 +305,6 @@ async function main() {
     drivers.forEach((d) => d.infoWindow.setContent(driverPopup(d)));
   }, 5000);
 
-  const socket = io();
-
   socket.on('drivers:snapshot', (list) => { list.forEach(upsertDriver); if (!hasFitBounds) fitBoundsToEverything(); });
   socket.on('driver:update', upsertDriver);
   socket.on('driver:remove', ({ id }) => removeDriver(id));
@@ -196,6 +316,44 @@ async function main() {
   socket.on('routes:snapshot', (list) => list.forEach(upsertRoute));
   socket.on('driver:route', upsertRoute);
   socket.on('route:remove', ({ driverId }) => removeRoute(driverId));
+
+  loadBtn.addEventListener('click', async () => {
+    const rows = Geo.parseStopsText(stopsTextEl.value);
+    if (rows.length === 0) {
+      loadStatusEl.textContent = 'Pegá al menos un pedido (número de pedido + ubicación).';
+      loadStatusEl.className = 'status error';
+      return;
+    }
+
+    loadBtn.disabled = true;
+    let okCount = 0;
+    const failed = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const { order, raw } = rows[i];
+      const label = order ? `el pedido #${order} (línea ${i + 1})` : `la línea ${i + 1}`;
+      try {
+        const point = await Geo.resolveInput(raw, label, (msg) => {
+          loadStatusEl.textContent = msg;
+          loadStatusEl.className = 'status';
+        });
+        socket.emit('order:add', { orderNumber: order, lat: point.lat, lng: point.lng, label: point.label });
+        okCount++;
+      } catch (e) {
+        failed.push(`${order ? `#${order}` : `línea ${i + 1}`}: ${e.message}`);
+      }
+    }
+
+    loadBtn.disabled = false;
+    if (failed.length === 0) {
+      loadStatusEl.textContent = `Se cargaron ${okCount} pedido${okCount === 1 ? '' : 's'} correctamente.`;
+      loadStatusEl.className = 'status ok';
+      stopsTextEl.value = '';
+    } else {
+      loadStatusEl.textContent = `${okCount} cargados. ${failed.length} con problemas:\n${failed.join('\n')}`;
+      loadStatusEl.className = 'status error';
+    }
+  });
 }
 
 main();

@@ -1,10 +1,9 @@
 # Tracking en vivo de deliverys
 
-Servidor Node.js + Socket.IO con tres páginas:
+Servidor Node.js + Socket.IO con dos páginas:
 
-- **`/admin.html`** — cargás los pedidos del día (número + ubicación, uno por línea) y se los asignás a un delivery conectado; la ruta óptima de cada uno se arma sola.
-- **`/driver.html`** — la abre cada delivery desde su celular. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente; ahí también ve sus pedidos asignados y los marca como entregados.
-- **`/dashboard.html`** — el panel para vos: un mapa con todos los deliveries conectados y sus pedidos asignados en vivo, coloreados por delivery.
+- **`/dashboard.html`** — el panel para vos: cargás los pedidos del día (número + ubicación, uno por línea), se los asignás a un delivery conectado, y ves a todos en el mapa en vivo con sus pedidos coloreados por delivery. La ruta óptima de cada uno se arma sola.
+- **`/driver.html`** — la abre cada delivery desde su celular. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente; ahí también ve sus pedidos asignados (en el orden óptimo) y los marca como entregados.
 
 No usa base de datos: todo se guarda en memoria mientras el servidor está corriendo (se pierde si se reinicia), y un delivery se saca del mapa automáticamente si no manda una actualización en 5 minutos.
 

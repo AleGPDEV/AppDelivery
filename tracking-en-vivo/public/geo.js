@@ -1,6 +1,6 @@
 // Shared geocoding + route-optimization library, ported from optimizador-rutas/app.js.
 // Pure functions plus a couple of network calls — no DOM/UI coupling, so both
-// admin.js and driver.js can use it directly.
+// dashboard.js and driver.js can use it directly.
 const Geo = (() => {
   function parseStopLine(line) {
     const trimmed = line.trim();
