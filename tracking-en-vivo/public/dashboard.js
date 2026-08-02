@@ -80,8 +80,8 @@ async function main() {
     streetViewControl: false,
   });
 
-  const driverIcon = (color) => svgIcon(maps, color, '🛵', 32, 'circle');
-  const orderIcon = (color) => svgIcon(maps, color, '📦', 26, 'square');
+  const driverIcon = (color) => svgIcon(maps, color, '🛵', 46, 'circle');
+  const orderIcon = (color) => svgIcon(maps, color, '📦', 38, 'square');
 
   // id -> { marker, infoWindow, name/label, ... }
   const drivers = new Map();
