@@ -167,28 +167,6 @@ button.small {
   margin: 0 0 10px;
 }
 
-/* Map pins: circular for a delivery, rounded-square for a pedido, so they
-   never read as interchangeable generic markers. */
-.pin {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-  border: 2px solid white;
-}
-
-.driver-pin {
-  border-radius: 50%;
-}
-
-.order-pin {
-  border-radius: 6px;
-  font-size: 13px;
-}
-
 .driver-list,
 .order-list {
   list-style: none;

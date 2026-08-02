@@ -411,30 +411,51 @@ function updatePointPosition(pointIndex, newLatLng, li) {
   mapsLinkEl.href = buildGoogleMapsUrl(currentOrderedPoints, currentRoundtrip);
 }
 
+let mapMarkers = [];
+
 // Draws the route on the map. `orderedPoints` (the unique visited stops, in
 // order) gets one draggable marker each — dragging corrects a wrong geocode
 // and updates the Google Maps link instantly. `routeLatLngs`, when available,
 // is the real street-following polyline from OSRM; otherwise falls back to
 // straight lines between the stops.
-function renderMap(orderedPoints, routeLatLngs, liEls) {
+async function renderMap(orderedPoints, routeLatLngs, liEls) {
+  const maps = await loadGoogleMaps();
   const el = document.getElementById('map');
-  if (map) {
-    map.remove();
+
+  if (!map) {
+    map = new maps.Map(el, {
+      center: { lat: orderedPoints[0].lat, lng: orderedPoints[0].lng },
+      zoom: 13,
+      mapTypeControl: false,
+      streetViewControl: false,
+    });
   }
-  map = L.map(el);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(map);
+
+  mapMarkers.forEach((m) => m.setMap(null));
+  mapMarkers = [];
+  if (mapLayer) mapLayer.setMap(null);
+
+  const bounds = new maps.LatLngBounds();
 
   orderedPoints.forEach((p, i) => {
     const label = i === 0 ? 'Inicio' : `Parada ${i}${p.order ? ` (Pedido #${p.order})` : ''}`;
-    const marker = L.marker([p.lat, p.lng], { draggable: true }).addTo(map).bindPopup(label);
-    marker.on('dragend', (e) => updatePointPosition(i, e.target.getLatLng(), liEls[i]));
+    const position = { lat: p.lat, lng: p.lng };
+    const marker = new maps.Marker({ position, map, draggable: true, title: label });
+    const infoWindow = new maps.InfoWindow({ content: label });
+    marker.addListener('click', () => infoWindow.open(map, marker));
+    marker.addListener('dragend', (e) => {
+      updatePointPosition(i, { lat: e.latLng.lat(), lng: e.latLng.lng() }, liEls[i]);
+    });
+    mapMarkers.push(marker);
+    bounds.extend(position);
   });
 
   const latlngs = routeLatLngs || orderedPoints.map(p => [p.lat, p.lng]);
-  mapLayer = L.polyline(latlngs, { color: '#2563eb', weight: 4 }).addTo(map);
-  map.fitBounds(mapLayer.getBounds(), { padding: [24, 24] });
+  const path = latlngs.map(([lat, lng]) => ({ lat, lng }));
+  mapLayer = new maps.Polyline({ path, strokeColor: '#2563eb', strokeWeight: 4, map });
+  path.forEach((pt) => bounds.extend(pt));
+
+  map.fitBounds(bounds, 24);
 }
 
 calculateBtn.addEventListener('click', async () => {
@@ -530,7 +551,7 @@ calculateBtn.addEventListener('click', async () => {
 
     resultsEl.hidden = false;
     const fallbackLatLngs = routeForGeometry.map(p => [p.lat, p.lng]);
-    renderMap(orderedPoints, routeInfo ? routeInfo.latlngs : fallbackLatLngs, liEls);
+    await renderMap(orderedPoints, routeInfo ? routeInfo.latlngs : fallbackLatLngs, liEls);
   } catch (e) {
     showError(e.message);
   } finally {
