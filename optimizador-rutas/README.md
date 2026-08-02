@@ -28,3 +28,4 @@ App web (sin instalación, sin backend) para armar la ruta más eficiente de un 
 - El ruteo (orden óptimo + distancia/tiempo real) sigue usando el servidor público y gratuito de [OSRM](http://project-osrm.org/), apto para uso liviano/prototipo; para volumen alto en producción conviene self-hostearlo.
 - Si el servicio de rutas no responde, la app avisa y usa una estimación en línea recta como respaldo.
 - Google Maps admite hasta 23 paradas intermedias por recorrido.
+- Los **links cortos** (`maps.app.goo.gl/...`) se expanden automáticamente vía [corsproxy.io](https://corsproxy.io/) — un navegador no puede seguir esa redirección por su cuenta (CORS), y este proxy lo hace del lado del servidor y devuelve la URL final. Es un servicio de terceros que no operamos nosotros: si está caído, la app avisa y pide pegar el link completo, la dirección o las coordenadas en su lugar.

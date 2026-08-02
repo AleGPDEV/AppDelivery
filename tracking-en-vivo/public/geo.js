@@ -27,6 +27,12 @@ const Geo = (() => {
     m = text.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
     if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
 
+    // /maps/search/LAT,+LNG — what a maps.app.goo.gl short link expands to when
+    // it points at bare coordinates. The "+" is a literal character in this
+    // path (not query-string encoding), standing in for a space.
+    m = text.match(/\/maps\/search\/(-?\d+\.\d+),\+?(-?\d+\.\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+
     m = text.match(/^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/);
     if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
 
@@ -152,12 +158,43 @@ const Geo = (() => {
     return { point: null, needsGeocode: false };
   }
 
-  // `onProgress(message)` is optional — called while a geocode lookup is in flight.
+  const SHORT_LINK_PATTERN = /(?:maps\.app\.goo\.gl|goo\.gl\/maps)\/\S+/i;
+
+  // A browser can't follow the redirect of a maps.app.goo.gl link itself and
+  // read where it lands — that's cross-origin, and Google's redirect response
+  // doesn't grant this page permission to read it (no CORS). corsproxy.io does
+  // the actual fetch server-side (no CORS restriction there) and reports the
+  // resolved URL in the `x-final-url` response header. It's a third-party
+  // service we don't run — a pragmatic fix, not a guaranteed-uptime one.
+  async function expandShortLink(url) {
+    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl);
+    if (!res.ok) return null;
+    return res.headers.get('x-final-url');
+  }
+
+  // `onProgress(message)` is optional — called while a link expansion or geocode lookup is in flight.
   async function resolveInput(raw, label, onProgress) {
-    const { point, needsGeocode, address } = resolveSync(raw);
+    let text = raw.trim();
+
+    if (SHORT_LINK_PATTERN.test(text)) {
+      if (onProgress) onProgress('Expandiendo link corto de Google Maps...');
+      let expanded = null;
+      try {
+        expanded = await expandShortLink(text);
+      } catch (e) {
+        // network error reaching the proxy — falls through to the same "couldn't expand" error below
+      }
+      if (!expanded) {
+        throw new Error(`No se pudo expandir el link corto de ${label} ("${text}"). Abrilo en el navegador y pegá el link completo, la dirección o las coordenadas en su lugar.`);
+      }
+      text = expanded;
+    }
+
+    const { point, needsGeocode, address } = resolveSync(text);
     if (point) return point;
     if (!needsGeocode) {
-      throw new Error(`No se pudo interpretar ${label}: "${raw}". Los links cortos (maps.app.goo.gl) no se pueden leer directamente; abrilos y copiá el link completo, la dirección de texto o las coordenadas.`);
+      throw new Error(`No se pudo interpretar ${label}: "${text}". Pegá el link completo de Google Maps, una dirección de texto o coordenadas.`);
     }
 
     if (onProgress) onProgress(`Buscando dirección: "${address.slice(0, 40)}"...`);
