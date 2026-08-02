@@ -178,7 +178,6 @@ loadBtn.addEventListener('click', async () => {
     } catch (e) {
       failed.push(`${order ? `#${order}` : `línea ${i + 1}`}: ${e.message}`);
     }
-    await Geo.sleep(Geo.NOMINATIM_DELAY_MS);
   }
 
   loadBtn.disabled = false;

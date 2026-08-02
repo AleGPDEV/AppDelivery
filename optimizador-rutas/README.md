@@ -16,14 +16,15 @@ App web (sin instalación, sin backend) para armar la ruta más eficiente de un 
 
    El número de pedido y la ubicación pueden ir separados por tabulación, coma o espacio (se puede pegar directo desde una planilla).
 4. Presioná **Calcular ruta óptima**. La app:
-   - Convierte direcciones de texto a coordenadas (Nominatim/OpenStreetMap).
+   - Convierte direcciones de texto a coordenadas (Google Maps Geocoding, vía la Maps JavaScript API).
    - Calcula el orden más eficiente usando distancias reales de manejo (OSRM).
    - Dibuja el recorrido en el mapa siguiendo las calles.
    - Genera un link de **Google Maps** listo para abrir en el celular del delivery.
 
 ## Notas técnicas
 
-- 100% del lado del cliente: no requiere servidor propio ni API keys.
-- Usa los servidores públicos y gratuitos de [Nominatim](https://nominatim.org/) (geocodificación) y [OSRM](http://project-osrm.org/) (ruteo). Son aptos para uso liviano/prototipo; para volumen alto en producción conviene self-hostearlos.
+- 100% del lado del cliente: no requiere servidor propio.
+- La geocodificación usa una **API key de Google Maps** (`GOOGLE_MAPS_API_KEY` en `app.js`), restringida por HTTP referrer en Google Cloud Console — está pensada para vivir en el código público del sitio, no en secreto. Si Google no encuentra una dirección con suficiente precisión, avisa y sugiere pegar coordenadas en su lugar.
+- El ruteo (orden óptimo + distancia/tiempo real) sigue usando el servidor público y gratuito de [OSRM](http://project-osrm.org/), apto para uso liviano/prototipo; para volumen alto en producción conviene self-hostearlo.
 - Si el servicio de rutas no responde, la app avisa y usa una estimación en línea recta como respaldo.
 - Google Maps admite hasta 23 paradas intermedias por recorrido.

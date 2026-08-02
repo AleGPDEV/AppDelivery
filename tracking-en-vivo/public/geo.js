@@ -44,8 +44,67 @@ const Geo = (() => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const geocodeCache = new Map();
-  const NOMINATIM_DELAY_MS = 1000;
 
+  // Same key as optimizador-rutas, intentionally visible client-side (no
+  // build/server step hides it) — protected by HTTP referrer restriction in
+  // Google Cloud Console rather than by secrecy.
+  const GOOGLE_MAPS_API_KEY = 'AIzaSyDFkwn0iYF1X3S6Zu3B0XhdI1PrRj2zAvQ';
+
+  // The Geocoding REST endpoint blocks direct browser calls (no CORS) — it's
+  // meant for server-side use. From these static pages we load the Maps
+  // JavaScript API instead, which ships a browser-compatible google.maps.Geocoder.
+  let googleMapsLoadPromise = null;
+  function loadGoogleMaps() {
+    if (googleMapsLoadPromise) return googleMapsLoadPromise;
+    googleMapsLoadPromise = new Promise((resolve, reject) => {
+      if (window.google && window.google.maps) { resolve(window.google.maps); return; }
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}`;
+      script.onload = () => resolve(window.google.maps);
+      script.onerror = () => reject(new Error('No se pudo cargar Google Maps (revisá la API key y sus restricciones de sitio en Google Cloud Console).'));
+      document.head.appendChild(script);
+    });
+    return googleMapsLoadPromise;
+  }
+
+  let geocoderInstance = null;
+  async function getGeocoder() {
+    const maps = await loadGoogleMaps();
+    if (!geocoderInstance) geocoderInstance = new maps.Geocoder();
+    return geocoderInstance;
+  }
+
+  // ROOFTOP = precise building match; RANGE_INTERPOLATED = estimated along the
+  // street (no exact house number); GEOMETRIC_CENTER/APPROXIMATE = only a
+  // broader area was recognized — too coarse to trust, treated as "not found".
+  function classifyGooglePrecision(result) {
+    const locationType = result.geometry && result.geometry.location_type;
+    if (locationType === 'ROOFTOP') return 'exact';
+    if (locationType === 'RANGE_INTERPOLATED') return 'street';
+    return null;
+  }
+
+  async function geocodeOnce(query) {
+    const geocoder = await getGeocoder();
+    const result = await new Promise((resolve, reject) => {
+      geocoder.geocode({ address: query }, (results, status) => {
+        if (status === 'OK' && results && results[0]) resolve(results[0]);
+        else if (status === 'ZERO_RESULTS') resolve(null);
+        else reject(new Error(`google-geocode-${status}`));
+      });
+    });
+    if (!result) return null;
+
+    const precision = classifyGooglePrecision(result);
+    if (!precision) return null;
+
+    const loc = result.geometry.location;
+    return { lat: loc.lat(), lng: loc.lng(), precision };
+  }
+
+  // Google's own address parsing rarely needs help, but titles ("Dr."),
+  // regional phrasing ("Departamento de X"), or an unmapped venue/complex name
+  // can still trip it up — kept as a safety net of progressively simpler variants.
   function addressVariants(address) {
     const normalized = address
       .replace(/\b(Dr|Dra|Sr|Sra|Lic|Ing|Prof)\.?\s*/gi, '')
@@ -69,44 +128,12 @@ const Geo = (() => {
     return [...new Set(variants)].filter(Boolean);
   }
 
-  const TOO_COARSE_TYPES = new Set([
-    'city', 'town', 'village', 'suburb', 'municipality', 'county', 'state',
-    'country', 'administrative', 'state_district', 'region',
-  ]);
-
-  function bboxDiagonalKm(boundingbox) {
-    const [south, north, west, east] = boundingbox.map(parseFloat);
-    return haversineKm({ lat: south, lng: west }, { lat: north, lng: east });
-  }
-
-  function classifyPrecision(result) {
-    if (result.class === 'boundary' || TOO_COARSE_TYPES.has(result.type)) return null;
-    if (result.boundingbox && bboxDiagonalKm(result.boundingbox) > 3) return null;
-    if (result.class === 'building' || result.type === 'house') return 'exact';
-    return 'street';
-  }
-
-  async function geocodeOnce(query) {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`;
-    const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
-    if (!res.ok) throw new Error('geocode-request-failed');
-    const data = await res.json();
-    if (!data || data.length === 0) return null;
-
-    const result = data[0];
-    const precision = classifyPrecision(result);
-    if (!precision) return null;
-
-    return { lat: parseFloat(result.lat), lng: parseFloat(result.lon), precision };
-  }
-
   async function geocodeAddress(address) {
     if (geocodeCache.has(address)) return geocodeCache.get(address);
 
     const variants = addressVariants(address);
     let result = null;
     for (let i = 0; i < variants.length; i++) {
-      if (i > 0) await sleep(NOMINATIM_DELAY_MS);
       result = await geocodeOnce(variants[i]);
       if (result) break;
     }
@@ -283,7 +310,6 @@ const Geo = (() => {
 
   return {
     parseStopLine, parseStopsText, parseCoordinates, extractAddressText,
-    resolveSync, resolveInput, haversineKm, buildGoogleMapsUrl, computeRoute,
-    sleep, NOMINATIM_DELAY_MS,
+    resolveSync, resolveInput, haversineKm, buildGoogleMapsUrl, computeRoute, sleep,
   };
 })();

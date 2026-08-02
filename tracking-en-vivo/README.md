@@ -1,11 +1,14 @@
 # Tracking en vivo de deliverys
 
-Servidor Node.js + Socket.IO con dos páginas:
+Servidor Node.js + Socket.IO con tres páginas:
 
-- **`/driver.html`** — la abre cada delivery desde su celular. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente cada vez que cambia.
-- **`/dashboard.html`** — el panel para vos: un mapa que muestra a todos los deliveries conectados en tiempo real, con su nombre y hace cuánto se actualizó por última vez.
+- **`/admin.html`** — cargás los pedidos del día (número + ubicación, uno por línea) y se los asignás a un delivery conectado; la ruta óptima de cada uno se arma sola.
+- **`/driver.html`** — la abre cada delivery desde su celular. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente; ahí también ve sus pedidos asignados y los marca como entregados.
+- **`/dashboard.html`** — el panel para vos: un mapa con todos los deliveries conectados y sus pedidos asignados en vivo, coloreados por delivery.
 
-No usa base de datos: las ubicaciones se guardan en memoria mientras el servidor está corriendo (se pierden si se reinicia), y un delivery se saca del mapa automáticamente si no manda una actualización en 5 minutos.
+No usa base de datos: todo se guarda en memoria mientras el servidor está corriendo (se pierde si se reinicia), y un delivery se saca del mapa automáticamente si no manda una actualización en 5 minutos.
+
+La geocodificación de direcciones de texto usa Google Maps (Geocoding vía la Maps JavaScript API, cargada en `public/geo.js`) — ver la nota sobre la API key en el README de `optimizador-rutas/`, que aplica igual acá (misma key, mismas restricciones de sitio en Google Cloud Console).
 
 ## Correrlo localmente
 

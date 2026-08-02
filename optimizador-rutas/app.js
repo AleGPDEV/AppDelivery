@@ -67,24 +67,72 @@ function extractAddressText(raw) {
   return null;
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 const geocodeCache = new Map();
-const NOMINATIM_DELAY_MS = 1000; // Nominatim's usage policy caps public requests at ~1/sec.
 
-// Nominatim's structured search often fails on titles/abbreviations (e.g. "Dr."),
-// on administrative-division phrasing (e.g. "Departamento de Canelones" instead of
-// just "Canelones"), and on private venue/complex names that simply aren't mapped
-// in OpenStreetMap (e.g. "Complejo Palmas del Norte"). Try the address as-is, then
-// progressively simplified variants, from most to least specific:
-//   1. as typed
-//   2. with titles/region-prefixes stripped
-//   3. same, but without the house number (in case only the street is mapped)
-//   4. with the leading segment dropped (handles an unmapped venue/complex name),
-//      also tried without its house number
-// A later, more aggressive variant is only used if every earlier (more specific)
-// one truly finds nothing — see geocodeAddress's specificity check below, which
-// keeps searching rather than accepting an overly broad match (e.g. a whole city).
+// This key is intentionally visible client-side (there's no build/server step
+// on this static site to hide it behind) — it's protected by HTTP referrer
+// restriction in Google Cloud Console instead of by secrecy, which is the
+// standard model for a browser-side Maps key.
+const GOOGLE_MAPS_API_KEY = 'AIzaSyDFkwn0iYF1X3S6Zu3B0XhdI1PrRj2zAvQ';
+
+// The Geocoding REST endpoint blocks direct browser calls (no CORS) — it's
+// meant for server-side use. From a static page we load the Maps JavaScript
+// API instead, which ships a browser-compatible google.maps.Geocoder.
+let googleMapsLoadPromise = null;
+function loadGoogleMaps() {
+  if (googleMapsLoadPromise) return googleMapsLoadPromise;
+  googleMapsLoadPromise = new Promise((resolve, reject) => {
+    if (window.google && window.google.maps) { resolve(window.google.maps); return; }
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}`;
+    script.onload = () => resolve(window.google.maps);
+    script.onerror = () => reject(new Error('No se pudo cargar Google Maps (revisá la API key y sus restricciones de sitio en Google Cloud Console).'));
+    document.head.appendChild(script);
+  });
+  return googleMapsLoadPromise;
+}
+
+let geocoderInstance = null;
+async function getGeocoder() {
+  const maps = await loadGoogleMaps();
+  if (!geocoderInstance) geocoderInstance = new maps.Geocoder();
+  return geocoderInstance;
+}
+
+// Google's own precision signal for how the match was found: ROOFTOP is a
+// precise building match; RANGE_INTERPOLATED is estimated between two known
+// points on the street (no exact house number); GEOMETRIC_CENTER/APPROXIMATE
+// mean it only recognized a broader area (a street, neighborhood or city) —
+// too coarse to trust as a delivery pin, so treated as "not found".
+function classifyGooglePrecision(result) {
+  const locationType = result.geometry && result.geometry.location_type;
+  if (locationType === 'ROOFTOP') return 'exact';
+  if (locationType === 'RANGE_INTERPOLATED') return 'street';
+  return null;
+}
+
+async function geocodeOnce(query) {
+  const geocoder = await getGeocoder();
+  const result = await new Promise((resolve, reject) => {
+    geocoder.geocode({ address: query }, (results, status) => {
+      if (status === 'OK' && results && results[0]) resolve(results[0]);
+      else if (status === 'ZERO_RESULTS') resolve(null);
+      else reject(new Error(`google-geocode-${status}`));
+    });
+  });
+  if (!result) return null;
+
+  const precision = classifyGooglePrecision(result);
+  if (!precision) return null; // too coarse (e.g. matched only the street/area) — keep trying other variants
+
+  const loc = result.geometry.location;
+  return { lat: loc.lat(), lng: loc.lng(), precision };
+}
+
+// Google's own address parsing is usually robust enough to need no massaging,
+// but titles ("Dr."), regional phrasing ("Departamento de X"), or an unmapped
+// venue/complex name can still occasionally trip it up — so the same
+// progressively-simplified variants from before are kept as a safety net.
 function addressVariants(address) {
   const normalized = address
     .replace(/\b(Dr|Dra|Sr|Sra|Lic|Ing|Prof)\.?\s*/gi, '')
@@ -108,52 +156,12 @@ function addressVariants(address) {
   return [...new Set(variants)].filter(Boolean);
 }
 
-// Nominatim place types that are too broad to use as a delivery location —
-// a match at this level means it only recognized the city/region, not the
-// actual street or address, and silently using it would drop the pin far
-// from the real destination.
-const TOO_COARSE_TYPES = new Set([
-  'city', 'town', 'village', 'suburb', 'municipality', 'county', 'state',
-  'country', 'administrative', 'state_district', 'region',
-]);
-
-function bboxDiagonalKm(boundingbox) {
-  const [south, north, west, east] = boundingbox.map(parseFloat);
-  return haversineKm({ lat: south, lng: west }, { lat: north, lng: east });
-}
-
-// Classifies how much to trust a match: 'exact' for a specific building/house,
-// 'street' for a road-level match (no house-number precision, but still a
-// specific street), or null if the match is too coarse (city/region level or
-// an unexpectedly large bounding box) to safely use.
-function classifyPrecision(result) {
-  if (result.class === 'boundary' || TOO_COARSE_TYPES.has(result.type)) return null;
-  if (result.boundingbox && bboxDiagonalKm(result.boundingbox) > 3) return null;
-  if (result.class === 'building' || result.type === 'house') return 'exact';
-  return 'street';
-}
-
-async function geocodeOnce(query) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`;
-  const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
-  if (!res.ok) throw new Error('geocode-request-failed');
-  const data = await res.json();
-  if (!data || data.length === 0) return null;
-
-  const result = data[0];
-  const precision = classifyPrecision(result);
-  if (!precision) return null; // too coarse (e.g. matched only the city) — keep trying other variants
-
-  return { lat: parseFloat(result.lat), lng: parseFloat(result.lon), precision };
-}
-
 async function geocodeAddress(address) {
   if (geocodeCache.has(address)) return geocodeCache.get(address);
 
   const variants = addressVariants(address);
   let result = null;
   for (let i = 0; i < variants.length; i++) {
-    if (i > 0) await sleep(NOMINATIM_DELAY_MS);
     result = await geocodeOnce(variants[i]);
     if (result) break;
   }
@@ -175,9 +183,7 @@ function resolveSync(raw) {
   return { point: null, needsGeocode: false };
 }
 
-// Resolves a raw input to a point, geocoding through Nominatim when needed.
-// Nominatim's usage policy caps public requests at ~1/sec, so callers must
-// await this one at a time (never in parallel) for inputs that need geocoding.
+// Resolves a raw input to a point, geocoding through Google Maps when needed.
 async function resolveInput(raw, label) {
   const { point, needsGeocode, address } = resolveSync(raw);
   if (point) return point;
@@ -339,16 +345,13 @@ function clearWarning() {
 }
 
 // `precision` is 'input' for a pasted coordinate/link (always trusted as-is),
-// or 'exact'/'street' for a text address resolved via Nominatim. Even an
-// 'exact' geocode can still land on the wrong street due to bad map data
-// (OpenStreetMap coverage issues are common for smaller towns), so every
-// geocoded point gets a reminder to check it — 'street' gets a stronger one
-// since it's known to only be approximate.
+// 'exact' for a Google ROOFTOP match (precise building-level geocode), or
+// 'street' for a RANGE_INTERPOLATED one (estimated along the street, house
+// number not confirmed) — only the latter gets a reminder to double-check.
 function routeLineText(p, i) {
   const orderTag = p.order ? `Pedido #${p.order} — ` : '';
   let precisionTag = '';
-  if (p.precision === 'street') precisionTag = ' (aproximado: solo se encontró a nivel de calle, revisar en el mapa)';
-  else if (p.precision === 'exact') precisionTag = ' (dirección de texto: verificar el pin en el mapa)';
+  if (p.precision === 'street') precisionTag = ' (aproximado: ubicación estimada sobre la calle, revisar en el mapa)';
   return i === 0
     ? `Inicio: ${p.label}${precisionTag}`
     : `Parada ${i}: ${orderTag}${p.label}${precisionTag}`;
@@ -413,10 +416,7 @@ calculateBtn.addEventListener('click', async () => {
   const originalBtnText = calculateBtn.textContent;
 
   try {
-    // Resolved sequentially (not in parallel) to respect Nominatim's rate limit
-    // for the inputs that need geocoding; a short delay follows each lookup.
     const start = await resolveInput(startRaw, 'el punto de partida');
-    await sleep(NOMINATIM_DELAY_MS);
 
     const stops = [];
     for (let i = 0; i < stopRows.length; i++) {
@@ -425,7 +425,6 @@ calculateBtn.addEventListener('click', async () => {
       const stop = await resolveInput(raw, label);
       stop.order = order;
       stops.push(stop);
-      await sleep(NOMINATIM_DELAY_MS);
     }
 
     const points = [start, ...stops];
