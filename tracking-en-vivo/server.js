@@ -19,6 +19,12 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 const COOKIE_NAME = 'admin_session';
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
+// Interruptor temporal: con DISABLE_AUTH=true en las variables de entorno,
+// nadie necesita loguearse (páginas de admin abiertas, sockets tratados como
+// admin). Para reactivar el login, sacar esa variable en Render — no hace
+// falta tocar código ni volver a desplegar nada más que ese cambio de env var.
+const AUTH_DISABLED = process.env.DISABLE_AUTH === 'true';
+
 function getToken(req) {
   const cookies = cookie.parse(req.headers.cookie || '');
   return cookies[COOKIE_NAME];
@@ -36,7 +42,7 @@ function verifyToken(token) {
 const PROTECTED_PAGES = ['/nuevo-pedido.html', '/pedidos.html', '/dashboard.html', '/caja.html'];
 
 app.use((req, res, next) => {
-  if (PROTECTED_PAGES.includes(req.path) && !verifyToken(getToken(req))) {
+  if (!AUTH_DISABLED && PROTECTED_PAGES.includes(req.path) && !verifyToken(getToken(req))) {
     return res.redirect('/login.html');
   }
   next();
@@ -222,7 +228,7 @@ async function bootstrapAdmin() {
 
 io.use((socket, next) => {
   const cookies = cookie.parse(socket.handshake.headers.cookie || '');
-  socket.data.isAdmin = !!verifyToken(cookies[COOKIE_NAME]);
+  socket.data.isAdmin = AUTH_DISABLED || !!verifyToken(cookies[COOKIE_NAME]);
   next();
 });
 

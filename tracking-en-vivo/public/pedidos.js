@@ -189,7 +189,18 @@ async function recomputeRouteForDriver(driverId) {
 socket.on('form-config:snapshot', (cfg) => { formConfig = cfg || {}; renderHeader(); renderOrders(); });
 
 socket.on('drivers:snapshot', (list) => { list.forEach((d) => { drivers.set(d.id, d); knownDriverNames.set(d.id, d.name); }); renderOrders(); });
-socket.on('driver:update', (d) => { drivers.set(d.id, d); knownDriverNames.set(d.id, d.name); renderOrders(); });
+// El GPS del delivery manda `driver:update` cada pocos segundos — si eso
+// redibujara toda la tabla cada vez, un <select> que tuvieras abierto (ej.
+// "Delivery asignado") se cerraría solo antes de poder elegir una opción.
+// Solo hace falta redibujar cuando aparece un delivery nuevo o cambia su
+// nombre; la posición no afecta nada de lo que se ve en esta tabla.
+socket.on('driver:update', (d) => {
+  const existing = drivers.get(d.id);
+  const needsRerender = !existing || existing.name !== d.name;
+  drivers.set(d.id, d);
+  knownDriverNames.set(d.id, d.name);
+  if (needsRerender) renderOrders();
+});
 socket.on('driver:remove', ({ id }) => { drivers.delete(id); renderOrders(); });
 
 socket.on('orders:snapshot', (list) => { list.forEach((o) => orders.set(o.id, o)); renderOrders(); });

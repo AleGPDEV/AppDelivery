@@ -306,7 +306,15 @@ async function recomputeRouteForDriver(driverId) {
 }
 
 socket.on('drivers:snapshot', (list) => { list.forEach((d) => drivers.set(d.id, d)); renderAssignOptions(); });
-socket.on('driver:update', (d) => { drivers.set(d.id, d); renderAssignOptions(); });
+// El GPS manda `driver:update` cada pocos segundos — redibujar el <select>
+// "Asignar a" en cada uno lo cerraría solo si lo tenías abierto para elegir.
+// Solo hace falta redibujar cuando aparece un delivery nuevo o cambia su nombre.
+socket.on('driver:update', (d) => {
+  const existing = drivers.get(d.id);
+  const needsRerender = !existing || existing.name !== d.name;
+  drivers.set(d.id, d);
+  if (needsRerender) renderAssignOptions();
+});
 socket.on('driver:remove', ({ id }) => { drivers.delete(id); renderAssignOptions(); });
 
 socket.on('orders:snapshot', (list) => list.forEach((o) => orders.set(o.id, o)));

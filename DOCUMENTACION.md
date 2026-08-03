@@ -50,6 +50,7 @@ Checkbox "Volver al punto de partida" — si está marcado, el depósito se agre
 - **Login de admin** (`admin_users` en Supabase, un solo usuario): `POST /api/login` verifica usuario/contraseña (`bcryptjs`) y devuelve una cookie httpOnly firmada con JWT (`SESSION_SECRET`, 30 días). `POST /api/logout` la borra. `POST /api/change-password` permite cambiarla estando logueado. Si la tabla `admin_users` está vacía al arrancar, `bootstrapAdmin()` crea el usuario inicial con `ADMIN_USERNAME`/`ADMIN_PASSWORD` (variables de entorno, solo se usan esa primera vez).
   - **Gate de páginas**: un middleware de Express redirige a `/login.html` si falta la cookie válida al pedir `nuevo-pedido.html`, `pedidos.html`, `dashboard.html` o `caja.html`. `driver.html` y `login.html` quedan públicas.
   - **Gate real (server-side)**: un middleware de Socket.IO (`io.use`) decodifica la misma cookie en el handshake y marca `socket.data.isAdmin`. Los handlers que modifican datos de admin (`order:add`, `order:assign`, `order:edit`, `order:remove`, `driver:clear-log`, `form-config:update`) chequean `socket.data.isAdmin` — el gate de páginas es solo para la experiencia de uso, esta es la barrera real (alguien podría abrir la consola del navegador y emitir eventos directo, sin pasar por ninguna página).
+  - **Interruptor `DISABLE_AUTH`**: con la variable de entorno `DISABLE_AUTH=true`, `AUTH_DISABLED` queda `true` y tanto el gate de páginas como `socket.data.isAdmin` se saltean para todos (nadie necesita loguearse). Pensado para desactivar el login temporalmente sin tocar código — para reactivarlo alcanza con sacar esa variable en Render (o ponerla en `false`) y que redespliegue.
   - `driver:update`, `driver:stop`, `order:delivered` y `driver:route` quedan sin auth: los usa `driver.html`, que no tiene login.
 
 - `public/geo.js` — misma lógica de geocodificación/ruteo/expansión de links que `optimizador-rutas/app.js`, compartida por las páginas que la necesitan (`nuevo-pedido.js`, `pedidos.js`, `driver.js` — `dashboard.js` y `caja.js` no la usan). También parsea el formato extendido de carga (ver 3.1) y `parseAmount` (convierte "$ 1.630,00" a número).
@@ -157,6 +158,7 @@ Se probó primero con Nominatim (gratis, sin key) pero tenía errores reales de 
 - `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` — del proyecto de Supabase (Settings → API). La *service role key* nunca se expone al navegador, solo la usa el servidor.
 - `SESSION_SECRET` — string random largo, firma las cookies de sesión del admin.
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — solo se usan la primera vez que arranca el servidor con la tabla `admin_users` vacía, para crear el usuario inicial. Cambios posteriores de contraseña se hacen desde "Cuenta" en `nuevo-pedido.html`, no tocando esta variable.
+- `DISABLE_AUTH` (opcional) — con `true`, se saltea el login para todos (páginas y sockets). Pensado para desactivarlo temporalmente sin tocar código; sacar la variable (o ponerla en `false`) y redesplegar para reactivarlo.
 
 Repo: `https://github.com/AleGPDEV/AppDelivery` (público).
 
