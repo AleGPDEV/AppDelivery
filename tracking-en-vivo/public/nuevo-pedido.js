@@ -1,6 +1,7 @@
 const stopsTextEl = document.getElementById('stops-text');
 const loadBtn = document.getElementById('load-btn');
 const loadStatusEl = document.getElementById('load-status');
+const bulkHintEl = document.getElementById('bulk-hint');
 const newPhoneEl = document.getElementById('new-phone');
 const newNameEl = document.getElementById('new-name');
 const newOrderNumEl = document.getElementById('new-ordernum');
@@ -35,7 +36,31 @@ const FIELD_LABELS = {
   location: 'Ubicación de entrega',
   amount: 'Monto',
 };
+const FIELD_ORDER = ['phone', 'name', 'orderNumber', 'location', 'amount'];
+const FIELD_SAMPLE = {
+  phone: '099123456',
+  name: 'Matias',
+  orderNumber: '3',
+  location: 'https://www.google.com/maps?q=-34.7067,-55.9607',
+  amount: '$ 1.630,00',
+};
 let formConfig = {};
+
+// Qué campos están activos y en qué orden — la carga masiva (pegado de
+// planilla) sigue exactamente esta lista, así una columna de menos o de más
+// nunca desalinea el resto de la fila.
+function visibleFieldOrder() {
+  return FIELD_ORDER.filter((key) => (formConfig[key] || { visible: true }).visible !== false);
+}
+
+function updateBulkHint() {
+  const fields = visibleFieldOrder();
+  const labels = fields.map((k) => FIELD_LABELS[k]);
+  bulkHintEl.textContent = fields.length > 0
+    ? `Formato (separado por tabulación, pegado directo de una planilla): ${labels.join(' · ')}. Si alguno falla, se avisa y el resto sigue cargando igual.`
+    : 'Activá al menos un campo en "Personalizar campos del formulario" para poder cargar pedidos.';
+  stopsTextEl.placeholder = fields.map((k) => FIELD_SAMPLE[k]).join('\t');
+}
 
 function applyFormConfig() {
   Object.keys(FIELD_LABELS).forEach((key) => {
@@ -43,6 +68,7 @@ function applyFormConfig() {
     const cfg = formConfig[key] || { visible: true, required: false };
     if (wrapper) wrapper.style.display = cfg.visible === false ? 'none' : '';
   });
+  updateBulkHint();
 }
 
 function renderFieldConfig() {
@@ -173,9 +199,10 @@ socket.on('order:update', (o) => {
 socket.on('order:remove', ({ id }) => orders.delete(id));
 
 loadBtn.addEventListener('click', async () => {
-  const rows = Geo.parseStopsText(stopsTextEl.value);
+  const fields = visibleFieldOrder();
+  const rows = Geo.parseStopsText(stopsTextEl.value, fields);
   if (rows.length === 0) {
-    loadStatusEl.textContent = 'Pegá al menos un pedido (número de pedido + ubicación).';
+    loadStatusEl.textContent = 'Pegá al menos un pedido.';
     loadStatusEl.className = 'status error';
     return;
   }
@@ -185,18 +212,22 @@ loadBtn.addEventListener('click', async () => {
   const failed = [];
 
   for (let i = 0; i < rows.length; i++) {
-    const { order, raw, amount, paymentMethod } = rows[i];
+    const { order, raw, amount, phone, name } = rows[i];
     const label = order ? `el pedido #${order} (línea ${i + 1})` : `la línea ${i + 1}`;
-    try {
-      const point = await Geo.resolveInput(raw, label, (msg) => {
-        loadStatusEl.textContent = msg;
-        loadStatusEl.className = 'status';
-      });
-      socket.emit('order:add', { id: genId(), orderNumber: order, lat: point.lat, lng: point.lng, label: point.label, amount, paymentMethod });
-      okCount++;
-    } catch (e) {
-      failed.push(`${order ? `#${order}` : `línea ${i + 1}`}: ${e.message}`);
+    let point = null;
+    if (raw) {
+      try {
+        point = await Geo.resolveInput(raw, label, (msg) => {
+          loadStatusEl.textContent = msg;
+          loadStatusEl.className = 'status';
+        });
+      } catch (e) {
+        failed.push(`${order ? `#${order}` : `línea ${i + 1}`}: ${e.message}`);
+        continue;
+      }
     }
+    socket.emit('order:add', { id: genId(), orderNumber: order, phone, name, lat: point ? point.lat : null, lng: point ? point.lng : null, label: point ? point.label : '', amount });
+    okCount++;
   }
 
   loadBtn.disabled = false;

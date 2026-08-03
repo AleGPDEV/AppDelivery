@@ -1,8 +1,19 @@
+const orderTheadRowEl = document.getElementById('order-thead-row');
 const orderTbodyEl = document.getElementById('order-tbody');
 const orderCountEl = document.getElementById('order-count');
 
 const STATUS_OPTIONS = [['pending', 'En preparación'], ['en_camino', 'En Camino'], ['entregado', 'Entregado']];
 const PAYMENT_OPTIONS = ['', 'Efectivo', 'Transferencia', 'Débito'];
+
+// Mismas columnas que se pueden ocultar/mostrar desde "Personalizar campos
+// del formulario" en nuevo-pedido.js — la tabla sigue esa misma elección.
+const FIELD_COLUMNS = [
+  { key: 'phone', label: 'Teléfono' },
+  { key: 'name', label: 'Nombre' },
+  { key: 'orderNumber', label: 'Nº pedido' },
+  { key: 'amount', label: 'Monto' },
+];
+const FIXED_COLUMNS = ['Delivery asignado', 'Método de pago', 'Estado', ''];
 
 const socket = io();
 
@@ -11,6 +22,33 @@ const socket = io();
 const drivers = new Map(); // driverId -> { name, lat, lng, color }
 const orders = new Map(); // orderId -> order data
 const knownDriverNames = new Map(); // survives a driver going offline, so old assignments still show a name
+let formConfig = {};
+
+function visibleFieldColumns() {
+  return FIELD_COLUMNS.filter((c) => (formConfig[c.key] || { visible: true }).visible !== false);
+}
+
+function renderHeader() {
+  orderTheadRowEl.innerHTML = '';
+  visibleFieldColumns().forEach((c) => {
+    const th = document.createElement('th');
+    th.textContent = c.label;
+    orderTheadRowEl.appendChild(th);
+  });
+  FIXED_COLUMNS.forEach((label) => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    orderTheadRowEl.appendChild(th);
+  });
+}
+
+function fieldCellContent(key, o) {
+  if (key === 'phone') return o.phone || '';
+  if (key === 'name') return `${o.name || ''}${orderPrecisionTag(o)}`;
+  if (key === 'orderNumber') return o.orderNumber || '';
+  if (key === 'amount') return o.amount != null ? `$${o.amount.toFixed(2)}` : '';
+  return '';
+}
 
 function driverLabel(id) {
   const d = drivers.get(id);
@@ -32,20 +70,16 @@ function renderOrders() {
 
   const sorted = Array.from(orders.entries()).sort((a, b) => (a[1].orderNumber || '').localeCompare(b[1].orderNumber || '', undefined, { numeric: true }));
 
+  const fieldColumns = visibleFieldColumns();
+
   sorted.forEach(([id, o]) => {
     const tr = document.createElement('tr');
 
-    const tdPhone = document.createElement('td');
-    tdPhone.textContent = o.phone || '';
-
-    const tdName = document.createElement('td');
-    tdName.textContent = `${o.name || ''}${orderPrecisionTag(o)}`;
-
-    const tdNum = document.createElement('td');
-    tdNum.textContent = o.orderNumber || '';
-
-    const tdAmount = document.createElement('td');
-    tdAmount.textContent = o.amount != null ? `$${o.amount.toFixed(2)}` : '';
+    fieldColumns.forEach((c) => {
+      const td = document.createElement('td');
+      td.textContent = fieldCellContent(c.key, o);
+      tr.appendChild(td);
+    });
 
     const tdAssign = document.createElement('td');
     const assignSelect = document.createElement('select');
@@ -108,7 +142,7 @@ function renderOrders() {
     });
     tdActions.appendChild(delBtn);
 
-    tr.append(tdPhone, tdName, tdNum, tdAmount, tdAssign, tdPayment, tdStatus, tdActions);
+    tr.append(tdAssign, tdPayment, tdStatus, tdActions);
     orderTbodyEl.appendChild(tr);
   });
 }
@@ -147,6 +181,8 @@ async function recomputeRouteForDriver(driverId) {
     // best-effort — if OSRM is briefly unreachable, the previous route stays displayed
   }
 }
+
+socket.on('form-config:snapshot', (cfg) => { formConfig = cfg || {}; renderHeader(); renderOrders(); });
 
 socket.on('drivers:snapshot', (list) => { list.forEach((d) => { drivers.set(d.id, d); knownDriverNames.set(d.id, d.name); }); renderOrders(); });
 socket.on('driver:update', (d) => { drivers.set(d.id, d); knownDriverNames.set(d.id, d.name); renderOrders(); });

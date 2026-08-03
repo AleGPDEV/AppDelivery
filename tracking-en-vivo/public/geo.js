@@ -13,30 +13,42 @@ const Geo = (() => {
     return isNaN(n) ? null : n;
   }
 
-  // A pasted line can be just "<pedido><ubicación>" (separated by space, comma,
-  // or tab) or, when pasted straight from a spreadsheet row, tab-separated
-  // with two extra columns: "<pedido>\t<ubicación>\t<importe>\t<forma de pago>".
-  function parseStopLine(line) {
+  // Which columns a pasted line has, and in what order, follows the admin's
+  // "personalizar campos" choice (nuevo-pedido.js) — `fieldOrder` is an array
+  // of keys among 'phone'|'name'|'orderNumber'|'location'|'amount', e.g.
+  // ['orderNumber', 'location', 'amount']. A line pasted straight from a
+  // spreadsheet is tab-separated, one column per entry in `fieldOrder`. As a
+  // convenience, the plain "<pedido> <ubicación>" (space/comma-separated, no
+  // tab) shortcut still works when that's the whole configured format.
+  function parseStopLine(line, fieldOrder) {
     const trimmed = line.trim();
     if (!trimmed) return null;
+    const fields = fieldOrder && fieldOrder.length ? fieldOrder : ['orderNumber', 'location'];
 
+    let parts;
     if (trimmed.includes('\t')) {
-      const parts = trimmed.split('\t').map((p) => p.trim());
-      return {
-        order: parts[0] || '',
-        raw: parts[1] || '',
-        amount: parts.length > 2 ? parseAmount(parts[2]) : null,
-        paymentMethod: parts[3] || '',
-      };
+      parts = trimmed.split('\t').map((p) => p.trim());
+    } else if (fields.length <= 2) {
+      const m = trimmed.match(/^([^\s,]+)[\s,]+(.+)$/);
+      parts = m ? [m[1], m[2].trim()] : [trimmed];
+    } else {
+      parts = [trimmed];
     }
 
-    const m = trimmed.match(/^([^\s,]+)[\s,]+(.+)$/);
-    if (m) return { order: m[1], raw: m[2].trim(), amount: null, paymentMethod: '' };
-    return { order: '', raw: trimmed, amount: null, paymentMethod: '' };
+    const result = { order: '', raw: '', amount: null, phone: '', name: '' };
+    fields.forEach((key, i) => {
+      const value = (parts[i] || '').trim();
+      if (key === 'orderNumber') result.order = value;
+      else if (key === 'location') result.raw = value;
+      else if (key === 'amount') result.amount = value ? parseAmount(value) : null;
+      else if (key === 'phone') result.phone = value;
+      else if (key === 'name') result.name = value;
+    });
+    return result;
   }
 
-  function parseStopsText(text) {
-    return text.split('\n').map(parseStopLine).filter(Boolean);
+  function parseStopsText(text, fieldOrder) {
+    return text.split('\n').map((line) => parseStopLine(line, fieldOrder)).filter(Boolean);
   }
 
   function parseCoordinates(raw) {
