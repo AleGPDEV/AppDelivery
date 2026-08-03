@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analíticas</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Deliverys en vivo</h1>
+    <p class="subtitle">Cargá pedidos, asignalos, y mirá cómo se mueven tus deliverys en el mapa.</p>
+  </header>
+
+  <nav class="tabs">
+    <a href="nuevo-pedido.html" class="tab-btn">Nuevo pedido</a>
+    <a href="pedidos.html" class="tab-btn">Pedidos</a>
+    <a href="dashboard.html" class="tab-btn">Deliverys y mapa</a>
+    <a href="caja.html" class="tab-btn">Rendición de caja</a>
+    <a href="analiticas.html" class="tab-btn active">Analíticas</a>
+    <button id="logout-btn" class="tab-btn" type="button">Cerrar sesión</button>
+  </nav>
+
+  <main>
+    <section class="panel">
+      <h2>Día comercial</h2>
+      <p id="day-status" class="driver-count">Cargando...</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button id="start-day-btn" type="button" class="primary" style="width:auto;">Iniciar día</button>
+        <button id="end-day-btn" type="button" class="danger" style="width:auto;">Finalizar día</button>
+      </div>
+      <p id="day-status-msg" class="status"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Historial diario</h2>
+      <p class="hint">Se guarda al tocar "Finalizar día" — cada fila queda fija, no cambia aunque edites pedidos después.</p>
+      <div id="daily-chart"></div>
+      <div class="table-scroll">
+        <table class="order-table">
+          <thead>
+            <tr><th>Fecha</th><th>Pedidos</th><th>Ingresos</th></tr>
+          </thead>
+          <tbody id="daily-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Resumen mensual</h2>
+      <div class="table-scroll">
+        <table class="order-table">
+          <thead>
+            <tr><th>Mes</th><th>Pedidos</th><th>Ingresos</th></tr>
+          </thead>
+          <tbody id="monthly-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="analiticas.js"></script>
+  <script src="logout.js"></script>
+</body>
+</html>

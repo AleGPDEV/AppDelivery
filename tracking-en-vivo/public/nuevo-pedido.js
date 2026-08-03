@@ -288,7 +288,7 @@ async function recomputeRouteForDriver(driverId) {
   if (!driver) return;
 
   const assigned = Array.from(orders.entries())
-    .filter(([, o]) => o.assignedTo === driverId && o.lat != null && o.status !== 'entregado')
+    .filter(([, o]) => o.assignedTo === driverId && o.lat != null && o.status !== 'entregado' && !o.archivedAt)
     .map(([id, o]) => ({ id, lat: o.lat, lng: o.lng, label: o.label, orderNumber: o.orderNumber }));
 
   if (assigned.length === 0) {

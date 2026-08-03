@@ -157,9 +157,9 @@ async function main() {
   function upsertOrder(o) {
     const existing = orders.get(o.id);
     const color = orderColor(drivers, o);
-    // Delivered pedidos come off the live map — they're done, no longer
-    // relevant to routing (they still live on in the registry, on pedidos.html).
-    const hasLocation = o.lat != null && o.lng != null && o.status !== 'entregado';
+    // Delivered or archived (día ya finalizado) pedidos come off the live
+    // map — they're done, no longer relevant to routing.
+    const hasLocation = o.lat != null && o.lng != null && o.status !== 'entregado' && !o.archivedAt;
     if (existing) {
       const marker = existing.marker;
       const infoWindow = existing.infoWindow;

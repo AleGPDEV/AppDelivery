@@ -1,19 +1,22 @@
 # Tracking en vivo de deliverys
 
-Servidor Node.js + Socket.IO con 5 páginas separadas (cada una su propio HTML/JS, no pestañas de una sola página):
+Servidor Node.js + Socket.IO con 7 páginas separadas (cada una su propio HTML/JS, no pestañas de una sola página):
 
 - **`/login.html`** — pantalla de acceso del admin (usuario/contraseña).
 - **`/nuevo-pedido.html`** — agendar un pedido (campos personalizables, ver abajo) o cargar varios de una pegando desde una planilla. También tiene la configuración de campos y el cambio de contraseña.
 - **`/pedidos.html`** — el registro de pedidos: una tabla con Teléfono/Nombre/Nº/Monto/Delivery asignado/Método de pago/Estado, todo editable ahí mismo.
 - **`/dashboard.html`** — lista de deliverys conectados + el mapa en vivo con sus pedidos coloreados por delivery.
 - **`/caja.html`** — rendición de caja por delivery.
+- **`/analiticas.html`** — botones "Iniciar día"/"Finalizar día" + histórico de pedidos/ingresos por día y por mes.
 - **`/driver.html`** — la abre cada delivery desde su celular, sin login. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente; ahí también ve sus pedidos asignados (en el orden óptimo) y elige la forma de pago al entregar.
 
-Las primeras 4 páginas requieren haber iniciado sesión como admin (si no, redirigen a `/login.html`); `driver.html` y `login.html` quedan públicas.
+Las primeras 5 páginas requieren haber iniciado sesión como admin (si no, redirigen a `/login.html`); `driver.html` y `login.html` quedan públicas.
 
 **Persistencia (Supabase)**: los pedidos, el usuario admin y la configuración de campos viven en Supabase (Postgres), así que sobreviven a un reinicio/redeploy del servidor. Los deliverys (posición GPS en vivo) siguen solo en memoria — no vale la pena persistir algo que cambia cada pocos segundos y que de todos modos se recrea solo apenas el delivery vuelve a compartir ubicación.
 
 **Campos personalizables**: desde "Nuevo pedido" el admin elige qué campos mostrar y cuáles son obligatorios (celular, nombre, nº de pedido, ubicación, monto), y puede **crear campos propios** (texto libre, ej. "Piso", "Referencia") con el botón "Agregar campo" — se guarda en Supabase y aplica para todos. Esto también reordena/recorta la **carga masiva** (el formato de columnas de la planilla sigue exactamente los campos activos, en ese orden, con los personalizados siempre al final) y agrega/oculta las columnas correspondientes en la tabla de `pedidos.html`.
+
+**Día comercial y analíticas**: "Iniciar día" marca cuándo empezó la jornada; "Finalizar día" archiva todos los pedidos activos (dejan de verse en `pedidos.html`, siguen enteros en Supabase) y congela ese día en el historial — pedidos totales y, de esos, cuánto se cobró realmente (solo los entregados). `analiticas.html` muestra ese historial día por día, un resumen por mes, y un gráfico simple de ingresos de los últimos 14 días cerrados.
 
 La geocodificación de direcciones de texto usa Google Maps (Geocoding vía la Maps JavaScript API, cargada en `public/geo.js`) — ver la nota sobre la API key en el README de `optimizador-rutas/`, que aplica igual acá (misma key, mismas restricciones de sitio en Google Cloud Console).
 
@@ -33,6 +36,7 @@ Abre:
 - Pedidos: http://localhost:3000/pedidos.html
 - Mapa: http://localhost:3000/dashboard.html
 - Rendición: http://localhost:3000/caja.html
+- Analíticas: http://localhost:3000/analiticas.html
 
 ## Importante: para usarlo con celulares reales
 

@@ -68,11 +68,15 @@ function orderPrecisionTag(o) {
 
 function renderOrders() {
   orderTbodyEl.innerHTML = '';
-  orderCountEl.textContent = orders.size === 0
+  // Un pedido archivado (día ya finalizado en "Analíticas") sale del registro
+  // del día a día — sigue existiendo en Supabase para el histórico/analíticas,
+  // pero ya no tiene sentido seguir operándolo acá.
+  const active = Array.from(orders.entries()).filter(([, o]) => !o.archivedAt);
+  orderCountEl.textContent = active.length === 0
     ? 'Todavía no cargaste ningún pedido.'
-    : `${orders.size} pedido${orders.size === 1 ? '' : 's'} registrado${orders.size === 1 ? '' : 's'}.`;
+    : `${active.length} pedido${active.length === 1 ? '' : 's'} registrado${active.length === 1 ? '' : 's'}.`;
 
-  const sorted = Array.from(orders.entries()).sort((a, b) => (a[1].orderNumber || '').localeCompare(b[1].orderNumber || '', undefined, { numeric: true }));
+  const sorted = active.sort((a, b) => (a[1].orderNumber || '').localeCompare(b[1].orderNumber || '', undefined, { numeric: true }));
 
   const fieldColumns = visibleFieldColumns();
 
@@ -169,7 +173,7 @@ async function recomputeRouteForDriver(driverId) {
   if (!driver) return;
 
   const assigned = Array.from(orders.entries())
-    .filter(([, o]) => o.assignedTo === driverId && o.lat != null && o.status !== 'entregado')
+    .filter(([, o]) => o.assignedTo === driverId && o.lat != null && o.status !== 'entregado' && !o.archivedAt)
     .map(([id, o]) => ({ id, lat: o.lat, lng: o.lng, label: o.label, orderNumber: o.orderNumber }));
 
   if (assigned.length === 0) {

@@ -39,7 +39,7 @@ function verifyToken(token) {
 // login.html itself stay public. The real security boundary is the socket
 // handler checks below (socket.data.isAdmin), this is just so an anonymous
 // visitor lands on the login screen instead of a blank admin page.
-const PROTECTED_PAGES = ['/nuevo-pedido.html', '/pedidos.html', '/dashboard.html', '/caja.html'];
+const PROTECTED_PAGES = ['/nuevo-pedido.html', '/pedidos.html', '/dashboard.html', '/caja.html', '/analiticas.html'];
 
 app.use((req, res, next) => {
   if (!AUTH_DISABLED && PROTECTED_PAGES.includes(req.path) && !verifyToken(getToken(req))) {
@@ -47,6 +47,14 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Same check as the page gate above, but for the plain HTTP endpoints below
+// (business-day start/end/history) — those aren't Socket.IO events so they
+// need their own auth check instead of `socket.data.isAdmin`.
+function requireAuth(req, res, next) {
+  if (AUTH_DISABLED || verifyToken(getToken(req))) return next();
+  res.status(401).json({ error: 'No autenticado.' });
+}
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -142,6 +150,7 @@ function orderRow(id, o) {
     amount: o.amount,
     payment_method: o.paymentMethod || null,
     reconciled_at: o.reconciledAt ? new Date(o.reconciledAt).toISOString() : null,
+    archived_at: o.archivedAt ? new Date(o.archivedAt).toISOString() : null,
     updated_at: new Date(o.updatedAt).toISOString(),
     custom: o.custom || {},
   };
@@ -199,6 +208,7 @@ async function loadOrders() {
       amount: row.amount,
       paymentMethod: row.payment_method,
       reconciledAt: row.reconciled_at ? new Date(row.reconciled_at).getTime() : null,
+      archivedAt: row.archived_at ? new Date(row.archived_at).getTime() : null,
       updatedAt: new Date(row.updated_at).getTime(),
       custom: row.custom || {},
     });
@@ -225,6 +235,65 @@ async function bootstrapAdmin() {
   await supabase.from('admin_users').insert({ username, password_hash: hash });
   console.log(`Admin inicial creado: ${username}`);
 }
+
+// "Día comercial": un botón "Iniciar día"/"Finalizar día" en analiticas.html,
+// pensado para reflejar cómo el local ya piensa su jornada (no necesariamente
+// medianoche a medianoche — un viernes a la noche puede seguir "abierto"
+// después de las 00:00). Al finalizar, se archivan los pedidos activos
+// (dejan de verse en pedidos.html) y se congela un total de ese día para que
+// ediciones futuras no lo alteren.
+async function getOpenBusinessDay() {
+  const { data, error } = await supabase.from('business_days').select('*').is('ended_at', null).order('started_at', { ascending: false }).limit(1).maybeSingle();
+  if (error) { console.error('Error leyendo business_days en Supabase:', error.message); return null; }
+  return data;
+}
+
+app.post('/api/business-day/start', requireAuth, async (req, res) => {
+  const open = await getOpenBusinessDay();
+  if (open) return res.json({ day: open });
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase.from('business_days')
+    .insert({ date: today, started_at: new Date().toISOString() })
+    .select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ day: data });
+});
+
+app.get('/api/business-day/current', requireAuth, async (req, res) => {
+  res.json({ day: await getOpenBusinessDay() });
+});
+
+// Archiva TODOS los pedidos activos (no solo los entregados) — si queda
+// alguno sin entregar, el frontend ya avisó y pidió confirmación antes de
+// llegar acá. Los ingresos solo suman los que sí se entregaron (plata real
+// cobrada); la cantidad de pedidos cuenta todo lo archivado.
+app.post('/api/business-day/end', requireAuth, async (req, res) => {
+  const open = await getOpenBusinessDay();
+  if (!open) return res.status(400).json({ error: 'No hay ningún día abierto.' });
+
+  const now = Date.now();
+  const active = Array.from(orders.entries()).filter(([, o]) => !o.archivedAt);
+  let totalRevenue = 0;
+  active.forEach(([id, o]) => {
+    o.archivedAt = now;
+    o.updatedAt = now;
+    if (o.status === 'entregado' && typeof o.amount === 'number') totalRevenue += o.amount;
+    persistOrder(id, o);
+    io.emit('order:update', { id, ...o });
+  });
+
+  const { data, error } = await supabase.from('business_days')
+    .update({ ended_at: new Date(now).toISOString(), total_orders: active.length, total_revenue: totalRevenue })
+    .eq('id', open.id).select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ day: data });
+});
+
+app.get('/api/business-days', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('business_days').select('*').order('date', { ascending: false }).limit(400);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ days: data || [] });
+});
 
 io.use((socket, next) => {
   const cookies = cookie.parse(socket.handshake.headers.cookie || '');
@@ -273,6 +342,7 @@ io.on('connection', (socket) => {
       amount: typeof amount === 'number' ? amount : null,
       paymentMethod: (paymentMethod || '').toString().slice(0, 30),
       reconciledAt: null,
+      archivedAt: null,
       updatedAt: Date.now(),
       custom: sanitizeCustom(custom),
     };
@@ -390,6 +460,7 @@ async function start() {
     console.log(`Pedidos:       http://localhost:${PORT}/pedidos.html`);
     console.log(`Mapa:          http://localhost:${PORT}/dashboard.html`);
     console.log(`Rendición:     http://localhost:${PORT}/caja.html`);
+    console.log(`Analíticas:    http://localhost:${PORT}/analiticas.html`);
   });
 }
 
