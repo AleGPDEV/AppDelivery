@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nuevo pedido</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Deliverys en vivo</h1>
+    <p class="subtitle">Cargá pedidos, asignalos, y mirá cómo se mueven tus deliverys en el mapa.</p>
+  </header>
+
+  <nav class="tabs">
+    <a href="nuevo-pedido.html" class="tab-btn active">Nuevo pedido</a>
+    <a href="pedidos.html" class="tab-btn">Pedidos</a>
+    <a href="dashboard.html" class="tab-btn">Deliverys y mapa</a>
+    <a href="caja.html" class="tab-btn">Rendición de caja</a>
+  </nav>
+
+  <main>
+    <section class="panel">
+      <h2>Agendar un pedido</h2>
+      <div class="field">
+        <label for="new-phone">Celular</label>
+        <input type="text" id="new-phone" placeholder="Ej: 099 123 456">
+      </div>
+      <div class="field">
+        <label for="new-name">Nombre</label>
+        <input type="text" id="new-name" placeholder="Ej: Matias">
+      </div>
+      <div class="field">
+        <label for="new-ordernum">Nº de pedido</label>
+        <input type="text" id="new-ordernum" placeholder="Ej: 13">
+      </div>
+      <div class="field">
+        <label for="new-location">Ubicación de entrega (dejar vacío si retira en el local)</label>
+        <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
+      </div>
+      <div class="field">
+        <label for="new-amount">Monto</label>
+        <input type="text" id="new-amount" placeholder="$ 1.630,00">
+      </div>
+      <div class="field">
+        <label for="new-assign">Asignar a</label>
+        <select id="new-assign"><option value="">Sin asignar</option></select>
+      </div>
+      <button id="new-order-btn" type="button" class="primary">Agregar pedido</button>
+      <p id="new-order-status" class="status"></p>
+    </section>
+
+    <section class="panel">
+      <div class="field">
+        <label for="stops-text">Carga masiva (una línea por pedido, pegado directo de una planilla)</label>
+        <textarea id="stops-text" rows="5" placeholder="99&#9;https://www.google.com/maps?q=-34.7599,-56.0083&#10;3&#9;https://www.google.com/maps?q=-34.7067,-55.9607&#9;$ 1.630,00&#9;Transferencia&#10;6&#9;Complejo Palmas del Norte, Ruta 75, Pando, Uruguay"></textarea>
+        <p class="hint">Formato: número de pedido, ubicación, y opcional importe y forma de pago esperada (separados por tabulación). Si alguno falla, se avisa y el resto sigue cargando igual.</p>
+      </div>
+      <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
+      <p id="load-status" class="status"></p>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="geo.js?v=4"></script>
+  <script src="nuevo-pedido.js"></script>
+</body>
+</html>

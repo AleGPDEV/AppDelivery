@@ -47,13 +47,15 @@ Checkbox "Volver al punto de partida" — si está marcado, el depósito se agre
   - Un delivery sin actualizar en 5 min se borra solo (`STALE_MS`).
   - Cada delivery tiene un color fijo asignado por orden de conexión (`COLOR_PALETTE`, 8 colores que rotan).
 
-- `public/geo.js` — misma lógica de geocodificación/ruteo/expansión de links que `optimizador-rutas/app.js`, pero compartida entre `dashboard.js` y `driver.js` (namespace global `Geo`). También parsea el formato extendido de carga (ver 3.1) y `parseAmount` (convierte "$ 1.630,00" a número).
-- `public/dashboard.html` + `dashboard.js` — panel para vos, organizado en **4 pestañas** (`.tab-btn`/`.tab-panel`, cambio simple de `hidden`, sin routing):
-  1. **Nuevo pedido** — formulario individual (celular, nombre, Nº pedido, ubicación opcional, monto, asignar a un delivery) para agendar en el momento, más la carga masiva (textarea, pegado de planilla) para cargar varios de una.
-  2. **Pedidos** — el **registro de pedidos**: una tabla (una fila por pedido, estilo planilla) con Teléfono, Nombre, Nº pedido, Monto, Delivery asignado (dropdown), Método de pago (dropdown editable) y Estado (dropdown: En preparación / En Camino / Entregado). Un pedido nunca se borra solo — sigue en la tabla con estado "Entregado" hasta que lo elimines a mano (🗑), o hasta que se reinicie el servidor.
-  3. **Deliverys y mapa** — lista de conectados + el mapa en vivo (los pedidos "Entregado" no muestran pin en el mapa, pero siguen en la tabla de la pestaña Pedidos).
-  4. **Rendición de caja** — ver 3.1.
-- `public/driver.html` + `driver.js` — la abre cada delivery. Nombre + botón "Empezar a compartir ubicación" → `navigator.geolocation.watchPosition` manda su posición por socket. Muestra sus pedidos asignados (en el orden óptimo, con nombre/teléfono del cliente) y, por cada uno, **3 botones de forma de pago** (Efectivo / Transferencia / Débito) — tocar cualquiera marca el pedido entregado con esa forma de pago (la que el cliente realmente usó al recibirlo, no la que se haya puesto al cargarlo).
+- `public/geo.js` — misma lógica de geocodificación/ruteo/expansión de links que `optimizador-rutas/app.js`, compartida por las páginas que la necesitan (`nuevo-pedido.js`, `pedidos.js`, `driver.js` — `dashboard.js` y `caja.js` no la usan). También parsea el formato extendido de carga (ver 3.1) y `parseAmount` (convierte "$ 1.630,00" a número).
+- **5 páginas separadas** (archivos HTML/JS propios cada una, no pestañas de una sola página — comparten `style.css` y una barra `<nav class="tabs">` con links entre ellas):
+  1. **`nuevo-pedido.html` + `nuevo-pedido.js`** — formulario individual (celular, nombre, Nº pedido, ubicación opcional, monto, asignar a un delivery) para agendar en el momento, más la carga masiva (textarea, pegado de planilla).
+  2. **`pedidos.html` + `pedidos.js`** — el **registro de pedidos**: una tabla (una fila por pedido, estilo planilla) con Teléfono, Nombre, Nº pedido, Monto, Delivery asignado (dropdown), Método de pago (dropdown editable) y Estado (dropdown: En preparación / En Camino / Entregado). Un pedido nunca se borra solo — sigue en la tabla con estado "Entregado" hasta que lo elimines a mano (🗑), o hasta que se reinicie el servidor.
+  3. **`dashboard.html` + `dashboard.js`** — lista de conectados + el mapa en vivo (los pedidos "Entregado" no muestran pin en el mapa, pero siguen en la tabla de `pedidos.html`).
+  4. **`caja.html` + `caja.js`** — rendición de caja, ver 3.1.
+  5. **`driver.html` + `driver.js`** — la abre cada delivery. Nombre + botón "Empezar a compartir ubicación" → `navigator.geolocation.watchPosition` manda su posición por socket. Muestra sus pedidos asignados (en el orden óptimo, con nombre/teléfono del cliente) y, por cada uno, **3 botones de forma de pago** (Efectivo / Transferencia / Débito) — tocar cualquiera marca el pedido entregado con esa forma de pago (la que el cliente realmente usó al recibirlo, no la que se haya puesto al cargarlo).
+
+  Como son páginas independientes, `nuevo-pedido.js` y `pedidos.js` duplican una versión chica de `recomputeRouteForDriver` cada una (ambas necesitan poder recalcular la ruta de un delivery al asignarle un pedido) — es la misma lógica en los dos archivos, no un bug.
 
 ### 3.1 Rendición de caja por delivery
 

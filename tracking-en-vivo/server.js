@@ -188,6 +188,9 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Tracking en vivo corriendo en http://localhost:${PORT}`);
-  console.log(`Delivery: http://localhost:${PORT}/driver.html`);
-  console.log(`Panel:    http://localhost:${PORT}/dashboard.html`);
+  console.log(`Delivery:      http://localhost:${PORT}/driver.html`);
+  console.log(`Nuevo pedido:  http://localhost:${PORT}/nuevo-pedido.html`);
+  console.log(`Pedidos:       http://localhost:${PORT}/pedidos.html`);
+  console.log(`Mapa:          http://localhost:${PORT}/dashboard.html`);
+  console.log(`Rendición:     http://localhost:${PORT}/caja.html`);
 });

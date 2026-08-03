@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Deliverys y mapa</title>
+<title>Rendición de caja</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -15,23 +15,20 @@
   <nav class="tabs">
     <a href="nuevo-pedido.html" class="tab-btn">Nuevo pedido</a>
     <a href="pedidos.html" class="tab-btn">Pedidos</a>
-    <a href="dashboard.html" class="tab-btn active">Deliverys y mapa</a>
-    <a href="caja.html" class="tab-btn">Rendición de caja</a>
+    <a href="dashboard.html" class="tab-btn">Deliverys y mapa</a>
+    <a href="caja.html" class="tab-btn active">Rendición de caja</a>
   </nav>
 
   <main>
     <section class="panel">
-      <h2>Deliverys conectados</h2>
-      <ul id="driver-list" class="driver-list"></ul>
-    </section>
-
-    <section class="panel">
-      <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
-      <div id="map"></div>
+      <h2>Rendición de caja por delivery</h2>
+      <p class="hint">Se arma sola con los pedidos que cada delivery entrega (importe + forma de pago elegida al momento de entregar). "Cambio inicial" y "Gastos" los cargás vos.</p>
+      <div id="cash-list"></div>
     </section>
   </main>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="dashboard.js?v=7"></script>
+  <script src="geo.js?v=4"></script>
+  <script src="caja.js"></script>
 </body>
 </html>

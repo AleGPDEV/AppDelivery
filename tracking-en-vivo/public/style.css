@@ -82,6 +82,8 @@ main {
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
+  text-decoration: none;
+  display: inline-block;
 }
 
 .tab-btn.active {
@@ -90,12 +92,6 @@ main {
   border: 1px solid var(--border);
   border-bottom: 1px solid var(--panel);
   margin-bottom: -1px;
-}
-
-.tab-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
 }
 
 .field {

@@ -1,9 +1,12 @@
 # Tracking en vivo de deliverys
 
-Servidor Node.js + Socket.IO con dos páginas:
+Servidor Node.js + Socket.IO con 5 páginas separadas (cada una su propio HTML/JS, no pestañas de una sola página):
 
-- **`/dashboard.html`** — el panel para vos: cargás los pedidos del día (número + ubicación, uno por línea), se los asignás a un delivery conectado, y ves a todos en el mapa en vivo con sus pedidos coloreados por delivery. La ruta óptima de cada uno se arma sola.
-- **`/driver.html`** — la abre cada delivery desde su celular. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente; ahí también ve sus pedidos asignados (en el orden óptimo) y los marca como entregados.
+- **`/nuevo-pedido.html`** — agendar un pedido (celular, nombre, número, ubicación opcional, monto, asignar a un delivery) o cargar varios de una pegando desde una planilla.
+- **`/pedidos.html`** — el registro de pedidos: una tabla con Teléfono/Nombre/Nº/Monto/Delivery asignado/Método de pago/Estado, todo editable ahí mismo.
+- **`/dashboard.html`** — lista de deliverys conectados + el mapa en vivo con sus pedidos coloreados por delivery.
+- **`/caja.html`** — rendición de caja por delivery.
+- **`/driver.html`** — la abre cada delivery desde su celular. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente; ahí también ve sus pedidos asignados (en el orden óptimo) y elige la forma de pago al entregar.
 
 No usa base de datos: todo se guarda en memoria mientras el servidor está corriendo (se pierde si se reinicia), y un delivery se saca del mapa automáticamente si no manda una actualización en 5 minutos.
 
@@ -18,7 +21,10 @@ npm start
 
 Abre:
 - Delivery: http://localhost:3000/driver.html
-- Panel: http://localhost:3000/dashboard.html
+- Nuevo pedido: http://localhost:3000/nuevo-pedido.html
+- Pedidos: http://localhost:3000/pedidos.html
+- Mapa: http://localhost:3000/dashboard.html
+- Rendición: http://localhost:3000/caja.html
 
 ## Importante: para usarlo con celulares reales
 
