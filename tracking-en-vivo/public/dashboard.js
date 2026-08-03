@@ -3,7 +3,7 @@ const driverListEl = document.getElementById('driver-list');
 const stopsTextEl = document.getElementById('stops-text');
 const loadBtn = document.getElementById('load-btn');
 const loadStatusEl = document.getElementById('load-status');
-const orderListEl = document.getElementById('order-list');
+const orderTbodyEl = document.getElementById('order-tbody');
 const orderCountEl = document.getElementById('order-count');
 const cashListEl = document.getElementById('cash-list');
 const newPhoneEl = document.getElementById('new-phone');
@@ -92,6 +92,9 @@ function orderPrecisionTag(o) {
   if (o.precision === 'exact') return ' (verificar pin en el mapa)';
   return '';
 }
+
+const STATUS_OPTIONS = [['pending', 'En preparación'], ['en_camino', 'En Camino'], ['entregado', 'Entregado']];
+const PAYMENT_OPTIONS = ['', 'Efectivo', 'Transferencia', 'Débito'];
 
 async function main() {
   const maps = await loadGoogleMaps();
@@ -252,44 +255,91 @@ async function main() {
   }
 
   function renderOrders() {
-    orderListEl.innerHTML = '';
+    orderTbodyEl.innerHTML = '';
     orderCountEl.textContent = orders.size === 0
       ? 'Todavía no cargaste ningún pedido.'
-      : `${orders.size} pedido${orders.size === 1 ? '' : 's'} pendiente${orders.size === 1 ? '' : 's'}.`;
+      : `${orders.size} pedido${orders.size === 1 ? '' : 's'} registrado${orders.size === 1 ? '' : 's'}.`;
 
     const sorted = Array.from(orders.entries()).sort((a, b) => (a[1].orderNumber || '').localeCompare(b[1].orderNumber || '', undefined, { numeric: true }));
 
     sorted.forEach(([id, o]) => {
-      const li = document.createElement('li');
+      const tr = document.createElement('tr');
 
-      const info = document.createElement('span');
-      info.className = 'order-info';
-      const who = o.name ? `${o.name}${o.phone ? ` (${o.phone})` : ''} — ` : '';
-      info.textContent = `#${o.orderNumber || '?'} — ${who}${o.label}${orderPrecisionTag(o)}`;
+      const tdPhone = document.createElement('td');
+      tdPhone.textContent = o.phone || '';
 
-      const select = document.createElement('select');
+      const tdName = document.createElement('td');
+      tdName.textContent = `${o.name || ''}${orderPrecisionTag(o)}`;
+
+      const tdNum = document.createElement('td');
+      tdNum.textContent = o.orderNumber || '';
+
+      const tdAmount = document.createElement('td');
+      tdAmount.textContent = o.amount != null ? `$${o.amount.toFixed(2)}` : '';
+
+      const tdAssign = document.createElement('td');
+      const assignSelect = document.createElement('select');
       const noneOpt = document.createElement('option');
       noneOpt.value = '';
       noneOpt.textContent = 'Sin asignar';
-      select.appendChild(noneOpt);
+      assignSelect.appendChild(noneOpt);
       drivers.forEach((d, driverId) => {
         const opt = document.createElement('option');
         opt.value = driverId;
         opt.textContent = d.name;
-        select.appendChild(opt);
+        assignSelect.appendChild(opt);
       });
       if (o.assignedTo && !drivers.has(o.assignedTo)) {
         const opt = document.createElement('option');
         opt.value = o.assignedTo;
         opt.textContent = `${driverLabel(o.assignedTo)} (desconectado)`;
-        select.appendChild(opt);
+        assignSelect.appendChild(opt);
       }
-      select.value = o.assignedTo || '';
-      select.addEventListener('change', () => assignOrder(id, select.value || null));
+      assignSelect.value = o.assignedTo || '';
+      assignSelect.addEventListener('change', () => assignOrder(id, assignSelect.value || null));
+      tdAssign.appendChild(assignSelect);
 
-      li.appendChild(info);
-      li.appendChild(select);
-      orderListEl.appendChild(li);
+      const tdPayment = document.createElement('td');
+      const paySelect = document.createElement('select');
+      PAYMENT_OPTIONS.forEach((pm) => {
+        const opt = document.createElement('option');
+        opt.value = pm;
+        opt.textContent = pm || 'Sin especificar';
+        paySelect.appendChild(opt);
+      });
+      paySelect.value = o.paymentMethod || '';
+      paySelect.addEventListener('change', () => {
+        socket.emit('order:edit', { id, fields: { paymentMethod: paySelect.value } });
+      });
+      tdPayment.appendChild(paySelect);
+
+      const tdStatus = document.createElement('td');
+      const statusSelect = document.createElement('select');
+      STATUS_OPTIONS.forEach(([value, text]) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = text;
+        statusSelect.appendChild(opt);
+      });
+      statusSelect.value = o.status || 'pending';
+      statusSelect.addEventListener('change', () => {
+        socket.emit('order:edit', { id, fields: { status: statusSelect.value } });
+      });
+      tdStatus.appendChild(statusSelect);
+
+      const tdActions = document.createElement('td');
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'danger small';
+      delBtn.textContent = '🗑';
+      delBtn.title = 'Eliminar pedido';
+      delBtn.addEventListener('click', () => {
+        if (confirm(`¿Eliminar el pedido #${o.orderNumber || '?'}?`)) socket.emit('order:remove', { id });
+      });
+      tdActions.appendChild(delBtn);
+
+      tr.append(tdPhone, tdName, tdNum, tdAmount, tdAssign, tdPayment, tdStatus, tdActions);
+      orderTbodyEl.appendChild(tr);
     });
   }
 
@@ -311,7 +361,7 @@ async function main() {
     if (!driver) return;
 
     const assigned = Array.from(orders.entries())
-      .filter(([, o]) => o.assignedTo === driverId && o.lat != null) // "retira" pedidos have no location to route to
+      .filter(([, o]) => o.assignedTo === driverId && o.lat != null && o.status !== 'entregado')
       .map(([id, o]) => ({ id, lat: o.lat, lng: o.lng, label: o.label, orderNumber: o.orderNumber }));
 
     if (assigned.length === 0) {
@@ -383,7 +433,10 @@ async function main() {
   function upsertOrder(o) {
     const existing = orders.get(o.id);
     const color = orderColor(drivers, o);
-    const hasLocation = o.lat != null && o.lng != null;
+    // Delivered pedidos stay in the registry table (they're no longer
+    // deleted) but come off the live map — they're done, no longer relevant
+    // to routing.
+    const hasLocation = o.lat != null && o.lng != null && o.status !== 'entregado';
     if (existing) {
       const marker = existing.marker;
       const infoWindow = existing.infoWindow;
@@ -392,6 +445,10 @@ async function main() {
         marker.setPosition({ lat: o.lat, lng: o.lng });
         marker.setIcon(orderIcon(color));
         infoWindow.setContent(orderPopup(drivers, existing));
+      } else if (!hasLocation && marker) {
+        marker.setMap(null);
+        existing.marker = null;
+        existing.infoWindow = null;
       }
     } else if (hasLocation) {
       const position = { lat: o.lat, lng: o.lng };

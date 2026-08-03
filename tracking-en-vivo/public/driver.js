@@ -36,7 +36,7 @@ function setStatus(text, kind) {
 }
 
 function renderOrders() {
-  const mine = Array.from(myOrders.entries()).filter(([, o]) => o.assignedTo === driverId);
+  const mine = Array.from(myOrders.entries()).filter(([, o]) => o.assignedTo === driverId && o.status !== 'entregado');
   // Sort by the optimal route sequence when we have one; anything not in it
   // yet (just assigned, route not recomputed) falls to the end.
   mine.sort(([idA], [idB]) => {
@@ -122,7 +122,7 @@ function renderRoute(r) {
 // recomputes it themselves too — keeps the order (and the Maps link) current
 // without depending on anyone else's tab being open.
 async function recomputeMyRoute() {
-  const assigned = Array.from(myOrders.values()).filter((o) => o.assignedTo === driverId);
+  const assigned = Array.from(myOrders.values()).filter((o) => o.assignedTo === driverId && o.status !== 'entregado' && o.lat != null);
   if (assigned.length === 0) {
     socket.emit('driver:route', { driverId, stops: [], latlngs: [] });
     return;

@@ -64,9 +64,25 @@
 
     <div id="tab-pedidos" class="tab-panel" hidden>
       <section class="panel">
-        <h2>Pedidos</h2>
+        <h2>Registro de pedidos</h2>
         <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
-        <ul id="order-list" class="order-list"></ul>
+        <div class="table-scroll">
+          <table class="order-table">
+            <thead>
+              <tr>
+                <th>Teléfono</th>
+                <th>Nombre</th>
+                <th>Nº pedido</th>
+                <th>Monto</th>
+                <th>Delivery asignado</th>
+                <th>Método de pago</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="order-tbody"></tbody>
+          </table>
+        </div>
       </section>
     </div>
 
@@ -93,6 +109,6 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="geo.js?v=4"></script>
-  <script src="dashboard.js?v=5"></script>
+  <script src="dashboard.js?v=6"></script>
 </body>
 </html>

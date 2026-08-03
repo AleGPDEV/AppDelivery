@@ -104,22 +104,39 @@ io.on('connection', (socket) => {
     io.emit('order:update', { id, ...entry });
   });
 
+  // Assigning/unassigning auto-moves the status between "en preparación" and
+  // "en camino" (unless it's already "entregado" — delivered stays delivered).
+  // The admin can still override the status by hand from the registry table.
   socket.on('order:assign', ({ id, driverId }) => {
     const o = orders.get(id);
     if (!o) return;
     o.assignedTo = driverId || null;
+    if (o.status !== 'entregado') o.status = driverId ? 'en_camino' : 'pending';
+    o.updatedAt = Date.now();
+    io.emit('order:update', { id, ...o });
+  });
+
+  // Admin editing a cell directly in the registry table (forma de pago o estado).
+  socket.on('order:edit', ({ id, fields }) => {
+    const o = orders.get(id);
+    if (!o || !fields) return;
+    if (typeof fields.status === 'string') o.status = fields.status.slice(0, 20);
+    if (typeof fields.paymentMethod === 'string') o.paymentMethod = fields.paymentMethod.slice(0, 30);
     o.updatedAt = Date.now();
     io.emit('order:update', { id, ...o });
   });
 
   // Marking a pedido delivered logs it against the driver it was assigned to,
-  // for the cash reconciliation view — a plain admin removal (order:remove,
-  // e.g. fixing a mistake) does not. `paymentMethod` is chosen by the driver
-  // at the moment of delivery (how the customer actually paid), overriding
-  // whatever expected value the order was created with, if any.
+  // for the cash reconciliation view. The order itself is NOT deleted anymore
+  // (unlike before) — it stays in the registry with status "entregado", so
+  // the day's full order history stays visible; only order:remove (admin
+  // fixing a mistaken entry) actually deletes it. `paymentMethod` is chosen
+  // by the driver at the moment of delivery (how the customer actually paid),
+  // overriding whatever expected value the order was created/edited with.
   socket.on('order:delivered', ({ id, paymentMethod }) => {
     const o = orders.get(id);
-    if (o && o.assignedTo) {
+    if (!o) return;
+    if (o.assignedTo) {
       const entry = {
         orderNumber: o.orderNumber,
         amount: o.amount,
@@ -131,7 +148,10 @@ io.on('connection', (socket) => {
       deliveredLogs.set(o.assignedTo, log);
       io.emit('driver:delivered-log', { driverId: o.assignedTo, log });
     }
-    removeOrder(id);
+    o.status = 'entregado';
+    if (paymentMethod) o.paymentMethod = paymentMethod;
+    o.updatedAt = Date.now();
+    io.emit('order:update', { id, ...o });
   });
   socket.on('order:remove', ({ id }) => removeOrder(id));
 

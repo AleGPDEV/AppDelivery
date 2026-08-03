@@ -50,8 +50,8 @@ Checkbox "Volver al punto de partida" — si está marcado, el depósito se agre
 - `public/geo.js` — misma lógica de geocodificación/ruteo/expansión de links que `optimizador-rutas/app.js`, pero compartida entre `dashboard.js` y `driver.js` (namespace global `Geo`). También parsea el formato extendido de carga (ver 3.1) y `parseAmount` (convierte "$ 1.630,00" a número).
 - `public/dashboard.html` + `dashboard.js` — panel para vos, organizado en **4 pestañas** (`.tab-btn`/`.tab-panel`, cambio simple de `hidden`, sin routing):
   1. **Nuevo pedido** — formulario individual (celular, nombre, Nº pedido, ubicación opcional, monto, asignar a un delivery) para agendar en el momento, más la carga masiva (textarea, pegado de planilla) para cargar varios de una.
-  2. **Pedidos** — lista de pendientes con el dropdown de asignación.
-  3. **Deliverys y mapa** — lista de conectados + el mapa en vivo.
+  2. **Pedidos** — el **registro de pedidos**: una tabla (una fila por pedido, estilo planilla) con Teléfono, Nombre, Nº pedido, Monto, Delivery asignado (dropdown), Método de pago (dropdown editable) y Estado (dropdown: En preparación / En Camino / Entregado). Un pedido nunca se borra solo — sigue en la tabla con estado "Entregado" hasta que lo elimines a mano (🗑), o hasta que se reinicie el servidor.
+  3. **Deliverys y mapa** — lista de conectados + el mapa en vivo (los pedidos "Entregado" no muestran pin en el mapa, pero siguen en la tabla de la pestaña Pedidos).
   4. **Rendición de caja** — ver 3.1.
 - `public/driver.html` + `driver.js` — la abre cada delivery. Nombre + botón "Empezar a compartir ubicación" → `navigator.geolocation.watchPosition` manda su posición por socket. Muestra sus pedidos asignados (en el orden óptimo, con nombre/teléfono del cliente) y, por cada uno, **3 botones de forma de pago** (Efectivo / Transferencia / Débito) — tocar cualquiera marca el pedido entregado con esa forma de pago (la que el cliente realmente usó al recibirlo, no la que se haya puesto al cargarlo).
 
@@ -61,7 +61,8 @@ Pensado a partir de la planilla real que ya usa el local (control de efectivo/tr
 
 - **Carga extendida** (carga masiva): cada línea puede tener 2 campos (número + ubicación, como siempre) o 4 separados por **tabulación** (pegado directo de una planilla): `número · ubicación · importe · forma de pago esperada`. `Geo.parseStopLine` detecta el tab y separa los 4 campos; `Geo.parseAmount` interpreta el formato uruguayo ("$ 1.630,00" → `1630`). La forma de pago acá es solo orientativa — la real se confirma al entregar.
 - El **id de cada pedido lo genera el cliente** (`genId()` en `dashboard.js`, mismo patrón que `driverId`) y viaja en el propio `order:add`, para poder asignarlo (`order:assign`) en el mismo tick sin esperar una respuesta del servidor.
-- Al marcar un pedido entregado (los 3 botones de forma de pago en `driver.html`), el servidor lo agrega al `deliveredLogs` del delivery que lo tenía asignado, con la forma de pago que el delivery eligió en ese momento (no pasa esto si se borra un pedido a mano con `order:remove`).
+- **Estado del pedido**: `pending` (En preparación) al crearlo → pasa solo a `en_camino` (En Camino) al asignarlo a un delivery (y vuelve a `pending` si se desasigna) → pasa solo a `entregado` cuando el delivery toca alguno de los 3 botones de forma de pago. El admin puede pisar el estado a mano en cualquier momento desde el dropdown de la tabla.
+- Al marcar un pedido entregado, el servidor lo agrega al `deliveredLogs` del delivery que lo tenía asignado, con la forma de pago que el delivery eligió en ese momento (pisando cualquier valor que se le hubiera puesto antes) — y el pedido **ya no se borra**, solo cambia a estado `entregado` (antes sí se borraba). Solo `order:remove` (🗑 en la tabla) borra un pedido de verdad.
 - La sección "Rendición de caja por delivery" en `dashboard.js` (`renderCashList`) suma, por delivery: efectivo cobrado (todo lo que no sea claramente otro medio de pago) vs. otros medios, y con dos campos manuales que vos cargás (**Cambio inicial**, **Gastos**) calcula `Debe entregar = efectivo cobrado + cambio - gastos` — misma lógica que la planilla original. "Cerrar rendición" limpia el historial de ese delivery (`driver:clear-log`).
 - Los campos Cambio/Gastos son **solo del navegador que los carga** (no se sincronizan por socket) — si abrís el panel en otra pestaña no los vas a ver ahí, solo los totales que sí vienen del servidor.
 
@@ -74,9 +75,11 @@ Pensado a partir de la planilla real que ya usa el local (control de efectivo/tr
 | `driver:stop` | driver.js (botón manual) | `{id}` | borra al delivery y su ruta |
 | `driver:remove` | servidor (broadcast) | `{id}` | avisa a todos que ese delivery ya no está |
 | `order:add` | dashboard.js (form individual o carga masiva) | `{id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod}` | crea un pedido; `lat`/`lng` opcionales (`null` = retira) |
-| `order:assign` | dashboard.js (dropdown o form individual) | `{id, driverId}` | asigna/desasigna un pedido |
-| `order:delivered` | driver.js (botón de forma de pago) | `{id, paymentMethod}` | borra el pedido y lo agrega al `deliveredLogs` del delivery asignado, con la forma de pago elegida |
-| `order:update` / `order:remove` | servidor (broadcast) | pedido completo / `{id}` | sincroniza pedidos en todos los clientes |
+| `order:assign` | dashboard.js (dropdown o form individual) | `{id, driverId}` | asigna/desasigna un pedido; auto-cambia el estado (pending ↔ en_camino) salvo que ya esté entregado |
+| `order:edit` | dashboard.js (dropdowns de la tabla) | `{id, fields: {status?, paymentMethod?}}` | el admin pisa a mano el estado y/o la forma de pago |
+| `order:delivered` | driver.js (botón de forma de pago) | `{id, paymentMethod}` | pasa el pedido a estado `entregado` (ya no se borra) y lo agrega al `deliveredLogs` del delivery asignado |
+| `order:update` | servidor (broadcast) | pedido completo | sincroniza un pedido (nuevo o modificado) en todos los clientes |
+| `order:remove` | dashboard.js (🗑 en la tabla) → servidor (broadcast) | `{id}` | borra un pedido de verdad (único caso en que desaparece de la tabla) |
 | `driver:route` | dashboard.js **o** driver.js (quien recalcule) | `{driverId, stops, latlngs, distanceKm, durationMin}` | comparte la ruta ya calculada (así nadie más repite la llamada a OSRM) |
 | `driver:clear-log` | dashboard.js ("Cerrar rendición") | `{driverId}` | vacía el historial de entregas de ese delivery |
 | `driver:delivered-log` | servidor (broadcast) | `{driverId, log}` | sincroniza el historial de entregas (rendición de caja) |
