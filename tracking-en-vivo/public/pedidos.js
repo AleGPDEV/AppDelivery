@@ -22,10 +22,14 @@ const socket = io();
 const drivers = new Map(); // driverId -> { name, lat, lng, color }
 const orders = new Map(); // orderId -> order data
 const knownDriverNames = new Map(); // survives a driver going offline, so old assignments still show a name
-let formConfig = {};
+let formConfig = { customFields: [] };
 
 function visibleFieldColumns() {
-  return FIELD_COLUMNS.filter((c) => (formConfig[c.key] || { visible: true }).visible !== false);
+  const builtins = FIELD_COLUMNS.filter((c) => (formConfig[c.key] || { visible: true }).visible !== false);
+  const customs = (formConfig.customFields || [])
+    .filter((f) => f.visible !== false)
+    .map((f) => ({ key: f.key, label: f.label }));
+  return [...builtins, ...customs];
 }
 
 function renderHeader() {
@@ -47,7 +51,7 @@ function fieldCellContent(key, o) {
   if (key === 'name') return `${o.name || ''}${orderPrecisionTag(o)}`;
   if (key === 'orderNumber') return o.orderNumber || '';
   if (key === 'amount') return o.amount != null ? `$${o.amount.toFixed(2)}` : '';
-  return '';
+  return (o.custom && o.custom[key]) || ''; // campo personalizado
 }
 
 function driverLabel(id) {

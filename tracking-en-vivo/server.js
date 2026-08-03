@@ -91,6 +91,9 @@ let formConfig = {
   orderNumber: { visible: true, required: true },
   location: { visible: true, required: false },
   amount: { visible: true, required: true },
+  // Campos que el admin agrega él mismo (además de los 5 de arriba):
+  // [{ key, label, visible, required }], en el orden en que los creó.
+  customFields: [],
 };
 
 const STALE_MS = 5 * 60 * 1000; // a driver with no updates for 5 min is dropped as offline
@@ -134,7 +137,23 @@ function orderRow(id, o) {
     payment_method: o.paymentMethod || null,
     reconciled_at: o.reconciledAt ? new Date(o.reconciledAt).toISOString() : null,
     updated_at: new Date(o.updatedAt).toISOString(),
+    custom: o.custom || {},
   };
+}
+
+// Los campos personalizados que el admin crea en "Personalizar campos del
+// formulario" (además de los 5 fijos) no tienen columna propia — se guardan
+// acá como texto libre. Se acota tamaño/cantidad para que un cliente mal
+// intencionado no pueda inflar el JSON indefinidamente.
+function sanitizeCustom(custom) {
+  const out = {};
+  if (!custom || typeof custom !== 'object') return out;
+  Object.keys(custom).slice(0, 20).forEach((key) => {
+    if (typeof key === 'string' && key.length <= 60) {
+      out[key] = (custom[key] || '').toString().slice(0, 200);
+    }
+  });
+  return out;
 }
 
 // Fire-and-forget: the in-memory Map + socket broadcast is what makes the UI
@@ -175,6 +194,7 @@ async function loadOrders() {
       paymentMethod: row.payment_method,
       reconciledAt: row.reconciled_at ? new Date(row.reconciled_at).getTime() : null,
       updatedAt: new Date(row.updated_at).getTime(),
+      custom: row.custom || {},
     });
   });
   console.log(`Pedidos cargados desde Supabase: ${orders.size}`);
@@ -183,6 +203,9 @@ async function loadOrders() {
 async function loadFormConfig() {
   const { data, error } = await supabase.from('form_config').select('fields').eq('id', 1).maybeSingle();
   if (!error && data && data.fields) formConfig = data.fields;
+  // Config guardada antes de que existieran los campos personalizados no
+  // tiene esta clave — se completa acá en vez de forzar otra migración.
+  if (!Array.isArray(formConfig.customFields)) formConfig.customFields = [];
 }
 
 async function bootstrapAdmin() {
@@ -229,7 +252,7 @@ io.on('connection', (socket) => {
   // opcionales: un pedido que retira en el local no tiene ubicación.
   // `id` lo genera el cliente (igual que el driverId) para poder asignarlo
   // en el mismo tick sin esperar una confirmación del servidor.
-  socket.on('order:add', ({ id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod }) => {
+  socket.on('order:add', ({ id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod, custom }) => {
     if (!socket.data.isAdmin || !id) return;
     const hasLocation = typeof lat === 'number' && typeof lng === 'number';
     const entry = {
@@ -245,6 +268,7 @@ io.on('connection', (socket) => {
       paymentMethod: (paymentMethod || '').toString().slice(0, 30),
       reconciledAt: null,
       updatedAt: Date.now(),
+      custom: sanitizeCustom(custom),
     };
     orders.set(id, entry);
     persistOrder(id, entry);

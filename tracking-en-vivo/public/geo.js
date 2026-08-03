@@ -35,7 +35,7 @@ const Geo = (() => {
       parts = [trimmed];
     }
 
-    const result = { order: '', raw: '', amount: null, phone: '', name: '' };
+    const result = { order: '', raw: '', amount: null, phone: '', name: '', custom: {} };
     fields.forEach((key, i) => {
       const value = (parts[i] || '').trim();
       if (key === 'orderNumber') result.order = value;
@@ -43,6 +43,7 @@ const Geo = (() => {
       else if (key === 'amount') result.amount = value ? parseAmount(value) : null;
       else if (key === 'phone') result.phone = value;
       else if (key === 'name') result.name = value;
+      else result.custom[key] = value; // campo personalizado (ver nuevo-pedido.js)
     });
     return result;
   }

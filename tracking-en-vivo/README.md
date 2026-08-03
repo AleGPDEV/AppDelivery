@@ -13,7 +13,7 @@ Las primeras 4 páginas requieren haber iniciado sesión como admin (si no, redi
 
 **Persistencia (Supabase)**: los pedidos, el usuario admin y la configuración de campos viven en Supabase (Postgres), así que sobreviven a un reinicio/redeploy del servidor. Los deliverys (posición GPS en vivo) siguen solo en memoria — no vale la pena persistir algo que cambia cada pocos segundos y que de todos modos se recrea solo apenas el delivery vuelve a compartir ubicación.
 
-**Campos personalizables**: desde "Nuevo pedido" el admin elige qué campos mostrar y cuáles son obligatorios (celular, nombre, nº de pedido, ubicación, monto) — se guarda en Supabase y aplica para todos. Esto también reordena/recorta la **carga masiva** (el formato de columnas de la planilla sigue exactamente los campos activos, en ese orden) y oculta las columnas correspondientes en la tabla de `pedidos.html`.
+**Campos personalizables**: desde "Nuevo pedido" el admin elige qué campos mostrar y cuáles son obligatorios (celular, nombre, nº de pedido, ubicación, monto), y puede **crear campos propios** (texto libre, ej. "Piso", "Referencia") con el botón "Agregar campo" — se guarda en Supabase y aplica para todos. Esto también reordena/recorta la **carga masiva** (el formato de columnas de la planilla sigue exactamente los campos activos, en ese orden, con los personalizados siempre al final) y agrega/oculta las columnas correspondientes en la tabla de `pedidos.html`.
 
 La geocodificación de direcciones de texto usa Google Maps (Geocoding vía la Maps JavaScript API, cargada en `public/geo.js`) — ver la nota sobre la API key en el README de `optimizador-rutas/`, que aplica igual acá (misma key, mismas restricciones de sitio en Google Cloud Console).
 
