@@ -59,6 +59,11 @@ main {
   gap: 16px;
 }
 
+header.wide,
+main.wide {
+  max-width: none;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
