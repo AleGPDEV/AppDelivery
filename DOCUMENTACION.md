@@ -41,28 +41,40 @@ Checkbox "Volver al punto de partida" — si está marcado, el depósito se agre
 ### Arquitectura
 - `server.js` — Express sirve `public/` como estático, y mantiene **todo el estado en memoria** (se pierde si el servidor se reinicia — no hay base de datos):
   - `drivers`: `driverId → {name, lat, lng, updatedAt}`
-  - `orders`: `orderId → {orderNumber, lat, lng, label, assignedTo, status, updatedAt}`
+  - `orders`: `orderId → {orderNumber, lat, lng, label, assignedTo, status, amount, paymentMethod, updatedAt}`
   - `routes`: `driverId → {stops, latlngs, distanceKm, durationMin}`
+  - `deliveredLogs`: `driverId → [{orderNumber, amount, paymentMethod, deliveredAt}]` — historial de entregas para la rendición de caja (sección 3.1). No se borra con el tiempo, solo al reiniciar el servidor o al tocar "Cerrar rendición".
   - Un delivery sin actualizar en 5 min se borra solo (`STALE_MS`).
   - Cada delivery tiene un color fijo asignado por orden de conexión (`COLOR_PALETTE`, 8 colores que rotan).
 
-- `public/geo.js` — misma lógica de geocodificación/ruteo/expansión de links que `optimizador-rutas/app.js`, pero compartida entre `dashboard.js` y `driver.js` (namespace global `Geo`).
-- `public/dashboard.html` + `dashboard.js` — **pantalla única** para vos: lista de deliverys conectados, cargar pedidos (mismo formato que el optimizador), asignarlos a un delivery (dropdown), y el mapa en vivo con todo.
+- `public/geo.js` — misma lógica de geocodificación/ruteo/expansión de links que `optimizador-rutas/app.js`, pero compartida entre `dashboard.js` y `driver.js` (namespace global `Geo`). También parsea el formato extendido de carga (ver 3.1) y `parseAmount` (convierte "$ 1.630,00" a número).
+- `public/dashboard.html` + `dashboard.js` — **pantalla única** para vos: lista de deliverys conectados, cargar pedidos (mismo formato que el optimizador, más importe/forma de pago opcionales), asignarlos a un delivery (dropdown), la rendición de caja de cada uno, y el mapa en vivo con todo.
 - `public/driver.html` + `driver.js` — la abre cada delivery. Nombre + botón "Empezar a compartir ubicación" → `navigator.geolocation.watchPosition` manda su posición por socket. Muestra sus pedidos asignados (en el orden óptimo) con botón "Entregado".
+
+### 3.1 Rendición de caja por delivery
+
+Pensado a partir de la planilla real que ya usa el local (control de efectivo/transferencia por delivery al cierre del día).
+
+- **Carga extendida**: al pegar pedidos en `dashboard.html`, cada línea puede tener 2 campos (número + ubicación, como siempre) o 4 separados por **tabulación** (pegado directo de una planilla): `número · ubicación · importe · forma de pago`. `Geo.parseStopLine` detecta el tab y separa los 4 campos; `Geo.parseAmount` interpreta el formato uruguayo ("$ 1.630,00" → `1630`).
+- Al marcar un pedido **Entregado**, el servidor lo agrega al `deliveredLogs` del delivery que lo tenía asignado (no pasa esto si se borra un pedido a mano con `order:remove`).
+- La sección "Rendición de caja por delivery" en `dashboard.js` (`renderCashList`) suma, por delivery: efectivo cobrado (todo lo que no sea claramente otro medio de pago) vs. otros medios, y con dos campos manuales que vos cargás (**Cambio inicial**, **Gastos**) calcula `Debe entregar = efectivo cobrado + cambio - gastos` — misma lógica que la planilla original. "Cerrar rendición" limpia el historial de ese delivery (`driver:clear-log`).
+- Los campos Cambio/Gastos son **solo del navegador que los carga** (no se sincronizan por socket) — si abrís el panel en otra pestaña no los vas a ver ahí, solo los totales que sí vienen del servidor.
 
 ### Eventos de Socket.IO (referencia)
 
 | Evento | Quién lo emite | Payload | Qué hace |
 |---|---|---|---|
-| `drivers:snapshot` / `orders:snapshot` / `routes:snapshot` | servidor, al conectarse | lista completa | estado inicial para un cliente recién conectado |
+| `drivers:snapshot` / `orders:snapshot` / `routes:snapshot` / `deliveredLogs:snapshot` | servidor, al conectarse | lista completa | estado inicial para un cliente recién conectado |
 | `driver:update` | driver.js (posición) | `{id, name, lat, lng}` | crea/actualiza un delivery; el servidor le agrega `color` y hace broadcast |
 | `driver:stop` | driver.js (botón manual) | `{id}` | borra al delivery y su ruta |
 | `driver:remove` | servidor (broadcast) | `{id}` | avisa a todos que ese delivery ya no está |
-| `order:add` | dashboard.js (cargar pedidos) | `{orderNumber, lat, lng, label}` | crea un pedido sin asignar |
+| `order:add` | dashboard.js (cargar pedidos) | `{orderNumber, lat, lng, label, amount, paymentMethod}` | crea un pedido sin asignar |
 | `order:assign` | dashboard.js (dropdown) | `{id, driverId}` | asigna/desasigna un pedido |
-| `order:delivered` | driver.js (botón Entregado) | `{id}` | borra el pedido (entregado) |
+| `order:delivered` | driver.js (botón Entregado) | `{id}` | borra el pedido y lo agrega al `deliveredLogs` del delivery asignado |
 | `order:update` / `order:remove` | servidor (broadcast) | pedido completo / `{id}` | sincroniza pedidos en todos los clientes |
 | `driver:route` | dashboard.js **o** driver.js (quien recalcule) | `{driverId, stops, latlngs, distanceKm, durationMin}` | comparte la ruta ya calculada (así nadie más repite la llamada a OSRM) |
+| `driver:clear-log` | dashboard.js ("Cerrar rendición") | `{driverId}` | vacía el historial de entregas de ese delivery |
+| `driver:delivered-log` | servidor (broadcast) | `{driverId, log}` | sincroniza el historial de entregas (rendición de caja) |
 | `route:remove` | servidor (broadcast) | `{driverId}` | borra la ruta dibujada de ese delivery |
 
 ### ¿Quién recalcula la ruta óptima de un delivery?

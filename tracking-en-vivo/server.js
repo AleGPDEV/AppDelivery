@@ -14,10 +14,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // driverId -> { name, lat, lng, updatedAt }
 const drivers = new Map();
-// orderId -> { orderNumber, lat, lng, label, assignedTo, status, updatedAt }
+// orderId -> { orderNumber, lat, lng, label, assignedTo, status, amount, paymentMethod, updatedAt }
 const orders = new Map();
 // driverId -> { stops: [{id,lat,lng,label,orderNumber}], latlngs: [[lat,lng],...], distanceKm, durationMin, updatedAt }
 const routes = new Map();
+// driverId -> [{orderNumber, amount, paymentMethod, deliveredAt}] — running log for the
+// cash reconciliation ("rendición de caja") view. Cleared only on server restart.
+const deliveredLogs = new Map();
 
 const STALE_MS = 5 * 60 * 1000; // a driver with no updates for 5 min is dropped as offline
 
@@ -45,6 +48,10 @@ function routeList() {
   return Array.from(routes.entries()).map(([driverId, r]) => ({ driverId, ...r, color: colorForDriver(driverId) }));
 }
 
+function deliveredLogList() {
+  return Array.from(deliveredLogs.entries()).map(([driverId, log]) => ({ driverId, log }));
+}
+
 function removeOrder(id) {
   if (!orders.has(id)) return;
   orders.delete(id);
@@ -55,6 +62,7 @@ io.on('connection', (socket) => {
   socket.emit('drivers:snapshot', driverList());
   socket.emit('orders:snapshot', orderList());
   socket.emit('routes:snapshot', routeList());
+  socket.emit('deliveredLogs:snapshot', deliveredLogList());
 
   socket.on('driver:update', ({ id, name, lat, lng }) => {
     if (!id || typeof lat !== 'number' || typeof lng !== 'number') return;
@@ -72,7 +80,7 @@ io.on('connection', (socket) => {
   });
 
   // Admin loaded and geocoded a pedido — make it visible to everyone (unassigned by default).
-  socket.on('order:add', ({ orderNumber, lat, lng, label }) => {
+  socket.on('order:add', ({ orderNumber, lat, lng, label, amount, paymentMethod }) => {
     if (typeof lat !== 'number' || typeof lng !== 'number') return;
     const id = `o-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const entry = {
@@ -81,6 +89,8 @@ io.on('connection', (socket) => {
       label: (label || '').toString().slice(0, 200),
       assignedTo: null,
       status: 'pending',
+      amount: typeof amount === 'number' ? amount : null,
+      paymentMethod: (paymentMethod || '').toString().slice(0, 30),
       updatedAt: Date.now(),
     };
     orders.set(id, entry);
@@ -95,8 +105,28 @@ io.on('connection', (socket) => {
     io.emit('order:update', { id, ...o });
   });
 
-  socket.on('order:delivered', ({ id }) => removeOrder(id));
+  // Marking a pedido delivered logs it (amount + payment method) against the
+  // driver it was assigned to, for the cash reconciliation view — a plain
+  // admin removal (order:remove, e.g. fixing a mistake) does not.
+  socket.on('order:delivered', ({ id }) => {
+    const o = orders.get(id);
+    if (o && o.assignedTo) {
+      const entry = { orderNumber: o.orderNumber, amount: o.amount, paymentMethod: o.paymentMethod, deliveredAt: Date.now() };
+      const log = deliveredLogs.get(o.assignedTo) || [];
+      log.push(entry);
+      deliveredLogs.set(o.assignedTo, log);
+      io.emit('driver:delivered-log', { driverId: o.assignedTo, log });
+    }
+    removeOrder(id);
+  });
   socket.on('order:remove', ({ id }) => removeOrder(id));
+
+  // Manual reset of a driver's reconciliation log (e.g. after cashing them out).
+  socket.on('driver:clear-log', ({ driverId }) => {
+    if (!driverId) return;
+    deliveredLogs.set(driverId, []);
+    io.emit('driver:delivered-log', { driverId, log: [] });
+  });
 
   // Admin (or, in principle, a driver's own device) computed a route for a
   // driver's currently-assigned pedidos and shares it so every connected

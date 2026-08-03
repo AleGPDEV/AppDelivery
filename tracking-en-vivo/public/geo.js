@@ -2,12 +2,37 @@
 // Pure functions plus a couple of network calls — no DOM/UI coupling, so both
 // dashboard.js and driver.js can use it directly.
 const Geo = (() => {
+  // Turns "$ 1.630,00" (or "1630.00", "1630") into a plain number. Uruguayan
+  // format uses "." as thousands separator and "," as decimal separator.
+  function parseAmount(text) {
+    if (!text) return null;
+    const cleaned = text.replace(/[^\d,.-]/g, '');
+    if (!cleaned) return null;
+    const normalized = cleaned.includes(',') ? cleaned.replace(/\./g, '').replace(',', '.') : cleaned;
+    const n = parseFloat(normalized);
+    return isNaN(n) ? null : n;
+  }
+
+  // A pasted line can be just "<pedido><ubicación>" (separated by space, comma,
+  // or tab) or, when pasted straight from a spreadsheet row, tab-separated
+  // with two extra columns: "<pedido>\t<ubicación>\t<importe>\t<forma de pago>".
   function parseStopLine(line) {
     const trimmed = line.trim();
     if (!trimmed) return null;
+
+    if (trimmed.includes('\t')) {
+      const parts = trimmed.split('\t').map((p) => p.trim());
+      return {
+        order: parts[0] || '',
+        raw: parts[1] || '',
+        amount: parts.length > 2 ? parseAmount(parts[2]) : null,
+        paymentMethod: parts[3] || '',
+      };
+    }
+
     const m = trimmed.match(/^([^\s,]+)[\s,]+(.+)$/);
-    if (m) return { order: m[1], raw: m[2].trim() };
-    return { order: '', raw: trimmed };
+    if (m) return { order: m[1], raw: m[2].trim(), amount: null, paymentMethod: '' };
+    return { order: '', raw: trimmed, amount: null, paymentMethod: '' };
   }
 
   function parseStopsText(text) {
@@ -346,7 +371,7 @@ const Geo = (() => {
   }
 
   return {
-    parseStopLine, parseStopsText, parseCoordinates, extractAddressText,
+    parseStopLine, parseStopsText, parseAmount, parseCoordinates, extractAddressText,
     resolveSync, resolveInput, haversineKm, buildGoogleMapsUrl, computeRoute, sleep,
   };
 })();

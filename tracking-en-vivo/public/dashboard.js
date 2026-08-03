@@ -5,6 +5,7 @@ const loadBtn = document.getElementById('load-btn');
 const loadStatusEl = document.getElementById('load-status');
 const orderListEl = document.getElementById('order-list');
 const orderCountEl = document.getElementById('order-count');
+const cashListEl = document.getElementById('cash-list');
 
 // Same key as geo.js — protected by HTTP referrer + API restriction in Google
 // Cloud Console, not by secrecy (see optimizador-rutas/README.md).
@@ -88,12 +89,99 @@ async function main() {
   const orders = new Map();
   const routeLines = new Map(); // driverId -> google.maps.Polyline
   const knownDriverNames = new Map(); // survives a driver going offline, so old assignments still show a name
+  const deliveredLogs = new Map(); // driverId -> [{orderNumber, amount, paymentMethod, deliveredAt}]
+  const cashInputs = new Map(); // driverId -> { cambio: number, gastos: number } — local only, not synced
   let hasFitBounds = false;
 
   function driverLabel(id) {
     const d = drivers.get(id);
     if (d) return d.name;
     return knownDriverNames.get(id) || 'delivery desconectado';
+  }
+
+  function isCash(paymentMethod) {
+    const p = (paymentMethod || '').toLowerCase();
+    return p === '' || p.includes('efectivo') || p === 'retira';
+  }
+
+  function renderCashList() {
+    cashListEl.innerHTML = '';
+    const driverIds = new Set([...deliveredLogs.keys(), ...drivers.keys()]);
+    if (driverIds.size === 0) {
+      cashListEl.innerHTML = '<p class="hint">Todavía no hay entregas registradas.</p>';
+      return;
+    }
+
+    driverIds.forEach((driverId) => {
+      const log = deliveredLogs.get(driverId) || [];
+      const cashTotal = log.filter((e) => isCash(e.paymentMethod)).reduce((sum, e) => sum + (e.amount || 0), 0);
+      const otherTotal = log.filter((e) => !isCash(e.paymentMethod)).reduce((sum, e) => sum + (e.amount || 0), 0);
+      const state = cashInputs.get(driverId) || { cambio: 0, gastos: 0 };
+      const debe = cashTotal + state.cambio - state.gastos;
+
+      const box = document.createElement('div');
+      box.className = 'field';
+      box.style.borderBottom = '1px solid var(--border)';
+      box.style.paddingBottom = '12px';
+      box.style.marginBottom = '12px';
+
+      const title = document.createElement('label');
+      title.textContent = `${driverLabel(driverId)} — ${log.length} entregado${log.length === 1 ? '' : 's'}`;
+      box.appendChild(title);
+
+      const summary = document.createElement('p');
+      summary.className = 'hint';
+      summary.textContent = `Efectivo cobrado: $${cashTotal.toFixed(2)} — Otros medios: $${otherTotal.toFixed(2)}`;
+      box.appendChild(summary);
+
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.gap = '8px';
+      row.style.alignItems = 'center';
+      row.style.flexWrap = 'wrap';
+
+      const cambioInput = document.createElement('input');
+      cambioInput.type = 'text';
+      cambioInput.placeholder = 'Cambio inicial';
+      cambioInput.value = state.cambio || '';
+      cambioInput.style.width = '140px';
+      cambioInput.addEventListener('input', () => {
+        state.cambio = Geo.parseAmount(cambioInput.value) || 0;
+        cashInputs.set(driverId, state);
+        renderCashList();
+      });
+
+      const gastosInput = document.createElement('input');
+      gastosInput.type = 'text';
+      gastosInput.placeholder = 'Gastos';
+      gastosInput.value = state.gastos || '';
+      gastosInput.style.width = '140px';
+      gastosInput.addEventListener('input', () => {
+        state.gastos = Geo.parseAmount(gastosInput.value) || 0;
+        cashInputs.set(driverId, state);
+        renderCashList();
+      });
+
+      const debeText = document.createElement('strong');
+      debeText.textContent = `Debe entregar: $${debe.toFixed(2)}`;
+
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'danger small';
+      clearBtn.textContent = 'Cerrar rendición';
+      clearBtn.addEventListener('click', () => {
+        socket.emit('driver:clear-log', { driverId });
+        cashInputs.delete(driverId);
+      });
+
+      row.appendChild(cambioInput);
+      row.appendChild(gastosInput);
+      row.appendChild(debeText);
+      row.appendChild(clearBtn);
+      box.appendChild(row);
+
+      cashListEl.appendChild(box);
+    });
   }
 
   function fitBoundsToEverything() {
@@ -240,6 +328,7 @@ async function main() {
     updateCount();
     renderDrivers();
     renderOrders();
+    renderCashList();
     refreshOrderColorsFor(d.id);
   }
 
@@ -254,6 +343,7 @@ async function main() {
     updateCount();
     renderDrivers();
     renderOrders();
+    renderCashList();
   }
 
   function upsertOrder(o) {
@@ -317,6 +407,15 @@ async function main() {
   socket.on('driver:route', upsertRoute);
   socket.on('route:remove', ({ driverId }) => removeRoute(driverId));
 
+  socket.on('deliveredLogs:snapshot', (list) => {
+    list.forEach(({ driverId, log }) => deliveredLogs.set(driverId, log));
+    renderCashList();
+  });
+  socket.on('driver:delivered-log', ({ driverId, log }) => {
+    deliveredLogs.set(driverId, log);
+    renderCashList();
+  });
+
   loadBtn.addEventListener('click', async () => {
     const rows = Geo.parseStopsText(stopsTextEl.value);
     if (rows.length === 0) {
@@ -330,14 +429,14 @@ async function main() {
     const failed = [];
 
     for (let i = 0; i < rows.length; i++) {
-      const { order, raw } = rows[i];
+      const { order, raw, amount, paymentMethod } = rows[i];
       const label = order ? `el pedido #${order} (línea ${i + 1})` : `la línea ${i + 1}`;
       try {
         const point = await Geo.resolveInput(raw, label, (msg) => {
           loadStatusEl.textContent = msg;
           loadStatusEl.className = 'status';
         });
-        socket.emit('order:add', { orderNumber: order, lat: point.lat, lng: point.lng, label: point.label });
+        socket.emit('order:add', { orderNumber: order, lat: point.lat, lng: point.lng, label: point.label, amount, paymentMethod });
         okCount++;
       } catch (e) {
         failed.push(`${order ? `#${order}` : `línea ${i + 1}`}: ${e.message}`);
