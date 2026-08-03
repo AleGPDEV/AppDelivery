@@ -9,45 +9,90 @@
 <body>
   <header>
     <h1>Deliverys en vivo</h1>
-    <p class="subtitle">Cargá y asigná pedidos, y mirá cómo se mueven tus deliverys en el mapa, todo en un solo lugar.</p>
+    <p class="subtitle">Cargá pedidos, asignalos, y mirá cómo se mueven tus deliverys en el mapa.</p>
   </header>
 
   <main>
-    <section class="panel">
-      <h2>Deliverys conectados</h2>
-      <ul id="driver-list" class="driver-list"></ul>
-    </section>
+    <nav class="tabs">
+      <button type="button" class="tab-btn active" data-tab="nuevo">Nuevo pedido</button>
+      <button type="button" class="tab-btn" data-tab="pedidos">Pedidos</button>
+      <button type="button" class="tab-btn" data-tab="mapa">Deliverys y mapa</button>
+      <button type="button" class="tab-btn" data-tab="caja">Rendición de caja</button>
+    </nav>
 
-    <section class="panel">
-      <div class="field">
-        <label for="stops-text">Pedidos nuevos (número de pedido + ubicación, y opcional importe + forma de pago)</label>
-        <textarea id="stops-text" rows="6" placeholder="99&#9;https://www.google.com/maps?q=-34.7599,-56.0083&#10;3&#9;https://www.google.com/maps?q=-34.7067,-55.9607&#9;$ 1.630,00&#9;Transferencia&#10;6&#9;Complejo Palmas del Norte, Ruta 75, Pando, Uruguay"></textarea>
-        <p class="hint">Podés pegar directo desde tu planilla de siempre (número, ubicación, importe, forma de pago, separados por tabulación). El importe y la forma de pago son opcionales y se usan para la rendición de caja de cada delivery. Si alguno falla, se avisa y el resto sigue cargando igual.</p>
-      </div>
-      <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
-      <p id="load-status" class="status"></p>
-    </section>
+    <div id="tab-nuevo" class="tab-panel">
+      <section class="panel">
+        <h2>Agendar un pedido</h2>
+        <div class="field">
+          <label for="new-phone">Celular</label>
+          <input type="text" id="new-phone" placeholder="Ej: 099 123 456">
+        </div>
+        <div class="field">
+          <label for="new-name">Nombre</label>
+          <input type="text" id="new-name" placeholder="Ej: Matias">
+        </div>
+        <div class="field">
+          <label for="new-ordernum">Nº de pedido</label>
+          <input type="text" id="new-ordernum" placeholder="Ej: 13">
+        </div>
+        <div class="field">
+          <label for="new-location">Ubicación de entrega (dejar vacío si retira en el local)</label>
+          <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
+        </div>
+        <div class="field">
+          <label for="new-amount">Monto</label>
+          <input type="text" id="new-amount" placeholder="$ 1.630,00">
+        </div>
+        <div class="field">
+          <label for="new-assign">Asignar a</label>
+          <select id="new-assign"><option value="">Sin asignar</option></select>
+        </div>
+        <button id="new-order-btn" type="button" class="primary">Agregar pedido</button>
+        <p id="new-order-status" class="status"></p>
+      </section>
 
-    <section class="panel">
-      <h2>Pedidos</h2>
-      <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
-      <ul id="order-list" class="order-list"></ul>
-    </section>
+      <section class="panel">
+        <div class="field">
+          <label for="stops-text">Carga masiva (una línea por pedido, pegado directo de una planilla)</label>
+          <textarea id="stops-text" rows="5" placeholder="99&#9;https://www.google.com/maps?q=-34.7599,-56.0083&#10;3&#9;https://www.google.com/maps?q=-34.7067,-55.9607&#9;$ 1.630,00&#9;Transferencia&#10;6&#9;Complejo Palmas del Norte, Ruta 75, Pando, Uruguay"></textarea>
+        <p class="hint">Formato: número de pedido, ubicación, y opcional importe y forma de pago esperada (separados por tabulación). Si alguno falla, se avisa y el resto sigue cargando igual.</p>
+        </div>
+        <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
+        <p id="load-status" class="status"></p>
+      </section>
+    </div>
 
-    <section class="panel">
-      <h2>Rendición de caja por delivery</h2>
-      <p class="hint">Se arma sola con los pedidos que cada delivery entrega (importe + forma de pago). "Cambio inicial" y "Gastos" los cargás vos.</p>
-      <div id="cash-list"></div>
-    </section>
+    <div id="tab-pedidos" class="tab-panel" hidden>
+      <section class="panel">
+        <h2>Pedidos</h2>
+        <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
+        <ul id="order-list" class="order-list"></ul>
+      </section>
+    </div>
 
-    <section class="panel">
-      <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
-      <div id="map"></div>
-    </section>
+    <div id="tab-mapa" class="tab-panel" hidden>
+      <section class="panel">
+        <h2>Deliverys conectados</h2>
+        <ul id="driver-list" class="driver-list"></ul>
+      </section>
+
+      <section class="panel">
+        <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
+        <div id="map"></div>
+      </section>
+    </div>
+
+    <div id="tab-caja" class="tab-panel" hidden>
+      <section class="panel">
+        <h2>Rendición de caja por delivery</h2>
+        <p class="hint">Se arma sola con los pedidos que cada delivery entrega (importe + forma de pago elegida al momento de entregar). "Cambio inicial" y "Gastos" los cargás vos.</p>
+        <div id="cash-list"></div>
+      </section>
+    </div>
   </main>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="geo.js?v=4"></script>
-  <script src="dashboard.js?v=4"></script>
+  <script src="dashboard.js?v=5"></script>
 </body>
 </html>

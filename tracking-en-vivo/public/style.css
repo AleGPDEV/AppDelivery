@@ -66,6 +66,38 @@ main {
   padding: 20px;
 }
 
+.tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+  width: auto;
+  background: none;
+  border: none;
+  border-radius: 8px 8px 0 0;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tab-btn.active {
+  color: var(--primary);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--panel);
+  margin-bottom: -1px;
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .field {
   margin-bottom: 14px;
 }

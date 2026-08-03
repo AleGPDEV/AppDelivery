@@ -14,7 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // driverId -> { name, lat, lng, updatedAt }
 const drivers = new Map();
-// orderId -> { orderNumber, lat, lng, label, assignedTo, status, amount, paymentMethod, updatedAt }
+// orderId -> { orderNumber, phone, name, lat, lng, label, assignedTo, status, amount, paymentMethod, updatedAt }
 const orders = new Map();
 // driverId -> { stops: [{id,lat,lng,label,orderNumber}], latlngs: [[lat,lng],...], distanceKm, durationMin, updatedAt }
 const routes = new Map();
@@ -79,14 +79,21 @@ io.on('connection', (socket) => {
     io.emit('route:remove', { driverId: id });
   });
 
-  // Admin loaded and geocoded a pedido — make it visible to everyone (unassigned by default).
-  socket.on('order:add', ({ orderNumber, lat, lng, label, amount, paymentMethod }) => {
-    if (typeof lat !== 'number' || typeof lng !== 'number') return;
-    const id = `o-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Admin agendó un pedido (individual o carga masiva) — visible para todos,
+  // sin asignar salvo que ya se haya elegido un delivery. `lat`/`lng` son
+  // opcionales: un pedido que retira en el local no tiene ubicación.
+  // `id` lo genera el cliente (igual que el driverId) para poder asignarlo
+  // en el mismo tick sin esperar una confirmación del servidor.
+  socket.on('order:add', ({ id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod }) => {
+    if (!id) return;
+    const hasLocation = typeof lat === 'number' && typeof lng === 'number';
     const entry = {
       orderNumber: (orderNumber || '').toString().slice(0, 20),
-      lat, lng,
-      label: (label || '').toString().slice(0, 200),
+      phone: (phone || '').toString().slice(0, 30),
+      name: (name || '').toString().slice(0, 60),
+      lat: hasLocation ? lat : null,
+      lng: hasLocation ? lng : null,
+      label: (label || (hasLocation ? '' : 'Retira en el local')).toString().slice(0, 200),
       assignedTo: null,
       status: 'pending',
       amount: typeof amount === 'number' ? amount : null,
@@ -105,13 +112,20 @@ io.on('connection', (socket) => {
     io.emit('order:update', { id, ...o });
   });
 
-  // Marking a pedido delivered logs it (amount + payment method) against the
-  // driver it was assigned to, for the cash reconciliation view — a plain
-  // admin removal (order:remove, e.g. fixing a mistake) does not.
-  socket.on('order:delivered', ({ id }) => {
+  // Marking a pedido delivered logs it against the driver it was assigned to,
+  // for the cash reconciliation view — a plain admin removal (order:remove,
+  // e.g. fixing a mistake) does not. `paymentMethod` is chosen by the driver
+  // at the moment of delivery (how the customer actually paid), overriding
+  // whatever expected value the order was created with, if any.
+  socket.on('order:delivered', ({ id, paymentMethod }) => {
     const o = orders.get(id);
     if (o && o.assignedTo) {
-      const entry = { orderNumber: o.orderNumber, amount: o.amount, paymentMethod: o.paymentMethod, deliveredAt: Date.now() };
+      const entry = {
+        orderNumber: o.orderNumber,
+        amount: o.amount,
+        paymentMethod: paymentMethod || o.paymentMethod,
+        deliveredAt: Date.now(),
+      };
       const log = deliveredLogs.get(o.assignedTo) || [];
       log.push(entry);
       deliveredLogs.set(o.assignedTo, log);

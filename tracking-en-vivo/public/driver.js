@@ -56,19 +56,34 @@ function renderOrders() {
   ordersListEl.innerHTML = '';
   mine.forEach(([id, o], idx) => {
     const li = document.createElement('li');
+    li.style.flexDirection = 'column';
+    li.style.alignItems = 'flex-start';
+    li.style.gap = '6px';
+
     const info = document.createElement('span');
     info.className = 'order-info';
-    info.textContent = `${idx + 1}. #${o.orderNumber || '?'} — ${o.label}`;
-    const doneBtn = document.createElement('button');
-    doneBtn.type = 'button';
-    doneBtn.className = 'danger small';
-    doneBtn.textContent = 'Entregado';
-    doneBtn.addEventListener('click', () => {
-      socket.emit('order:delivered', { id });
-      recomputeMyRoute();
+    const who = o.name ? `${o.name}${o.phone ? ` (${o.phone})` : ''} — ` : '';
+    info.textContent = `${idx + 1}. #${o.orderNumber || '?'} — ${who}${o.label}`;
+
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '4px';
+    btnRow.style.flexWrap = 'wrap';
+
+    ['Efectivo', 'Transferencia', 'Débito'].forEach((method) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'danger small';
+      btn.textContent = method;
+      btn.addEventListener('click', () => {
+        socket.emit('order:delivered', { id, paymentMethod: method });
+        recomputeMyRoute();
+      });
+      btnRow.appendChild(btn);
     });
+
     li.appendChild(info);
-    li.appendChild(doneBtn);
+    li.appendChild(btnRow);
     ordersListEl.appendChild(li);
   });
 }

@@ -6,6 +6,28 @@ const loadStatusEl = document.getElementById('load-status');
 const orderListEl = document.getElementById('order-list');
 const orderCountEl = document.getElementById('order-count');
 const cashListEl = document.getElementById('cash-list');
+const newPhoneEl = document.getElementById('new-phone');
+const newNameEl = document.getElementById('new-name');
+const newOrderNumEl = document.getElementById('new-ordernum');
+const newLocationEl = document.getElementById('new-location');
+const newAmountEl = document.getElementById('new-amount');
+const newAssignEl = document.getElementById('new-assign');
+const newOrderBtn = document.getElementById('new-order-btn');
+const newOrderStatusEl = document.getElementById('new-order-status');
+
+function genId() {
+  return `o-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Tabs — plain show/hide, no routing, works before Google Maps finishes loading.
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach((p) => { p.hidden = true; });
+    btn.classList.add('active');
+    document.getElementById(`tab-${btn.dataset.tab}`).hidden = false;
+  });
+});
 
 // Same key as geo.js — protected by HTTP referrer + API restriction in Google
 // Cloud Console, not by secrecy (see optimizador-rutas/README.md).
@@ -57,7 +79,8 @@ function orderPopup(drivers, o) {
   const assignedText = o.assignedTo && drivers.has(o.assignedTo)
     ? `Asignado a ${drivers.get(o.assignedTo).name}`
     : 'Sin asignar';
-  return `<strong>Pedido #${o.orderNumber || '?'}</strong><br>${o.label}<br>${assignedText}`;
+  const who = o.name ? `${o.name}${o.phone ? ` (${o.phone})` : ''}<br>` : '';
+  return `<strong>Pedido #${o.orderNumber || '?'}</strong><br>${who}${o.label}<br>${assignedText}`;
 }
 
 function orderColor(drivers, o) {
@@ -187,7 +210,7 @@ async function main() {
   function fitBoundsToEverything() {
     const points = [
       ...Array.from(drivers.values()).map((d) => ({ lat: d.lat, lng: d.lng })),
-      ...Array.from(orders.values()).map((o) => ({ lat: o.lat, lng: o.lng })),
+      ...Array.from(orders.values()).filter((o) => o.lat != null).map((o) => ({ lat: o.lat, lng: o.lng })),
     ];
     if (points.length === 0) return;
     const bounds = new maps.LatLngBounds();
@@ -209,13 +232,23 @@ async function main() {
     driverListEl.innerHTML = '';
     if (drivers.size === 0) {
       driverListEl.innerHTML = '<li class="empty">Ningún delivery está compartiendo su ubicación ahora mismo.</li>';
-      return;
+    } else {
+      drivers.forEach((d) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="swatch" style="background:${d.color}"></span> ${d.name}`;
+        driverListEl.appendChild(li);
+      });
     }
-    drivers.forEach((d) => {
-      const li = document.createElement('li');
-      li.innerHTML = `<span class="swatch" style="background:${d.color}"></span> ${d.name}`;
-      driverListEl.appendChild(li);
+
+    const previousValue = newAssignEl.value;
+    newAssignEl.innerHTML = '<option value="">Sin asignar</option>';
+    drivers.forEach((d, driverId) => {
+      const opt = document.createElement('option');
+      opt.value = driverId;
+      opt.textContent = d.name;
+      newAssignEl.appendChild(opt);
     });
+    newAssignEl.value = previousValue;
   }
 
   function renderOrders() {
@@ -231,7 +264,8 @@ async function main() {
 
       const info = document.createElement('span');
       info.className = 'order-info';
-      info.textContent = `#${o.orderNumber || '?'} — ${o.label}${orderPrecisionTag(o)}`;
+      const who = o.name ? `${o.name}${o.phone ? ` (${o.phone})` : ''} — ` : '';
+      info.textContent = `#${o.orderNumber || '?'} — ${who}${o.label}${orderPrecisionTag(o)}`;
 
       const select = document.createElement('select');
       const noneOpt = document.createElement('option');
@@ -277,7 +311,7 @@ async function main() {
     if (!driver) return;
 
     const assigned = Array.from(orders.entries())
-      .filter(([, o]) => o.assignedTo === driverId)
+      .filter(([, o]) => o.assignedTo === driverId && o.lat != null) // "retira" pedidos have no location to route to
       .map(([id, o]) => ({ id, lat: o.lat, lng: o.lng, label: o.label, orderNumber: o.orderNumber }));
 
     if (assigned.length === 0) {
@@ -302,7 +336,7 @@ async function main() {
 
   function refreshOrderColorsFor(driverId) {
     orders.forEach((o) => {
-      if (o.assignedTo === driverId) {
+      if (o.assignedTo === driverId && o.marker) {
         o.marker.setIcon(orderIcon(orderColor(drivers, o)));
         o.infoWindow.setContent(orderPopup(drivers, o));
       }
@@ -349,26 +383,38 @@ async function main() {
   function upsertOrder(o) {
     const existing = orders.get(o.id);
     const color = orderColor(drivers, o);
+    const hasLocation = o.lat != null && o.lng != null;
     if (existing) {
-      Object.assign(existing, o);
-      existing.marker.setPosition({ lat: o.lat, lng: o.lng });
-      existing.marker.setIcon(orderIcon(color));
-      existing.infoWindow.setContent(orderPopup(drivers, existing));
-    } else {
+      const marker = existing.marker;
+      const infoWindow = existing.infoWindow;
+      Object.assign(existing, o, { marker, infoWindow });
+      if (hasLocation && marker) {
+        marker.setPosition({ lat: o.lat, lng: o.lng });
+        marker.setIcon(orderIcon(color));
+        infoWindow.setContent(orderPopup(drivers, existing));
+      }
+    } else if (hasLocation) {
       const position = { lat: o.lat, lng: o.lng };
       const marker = new maps.Marker({ position, map, icon: orderIcon(color) });
       const infoWindow = new maps.InfoWindow({ content: orderPopup(drivers, o) });
       marker.addListener('click', () => infoWindow.open({ anchor: marker, map }));
       orders.set(o.id, { ...o, marker, infoWindow });
       fitBoundsToEverything();
+    } else {
+      orders.set(o.id, { ...o, marker: null, infoWindow: null }); // "retira" pedido — no map pin
     }
     renderOrders();
+    // Covers a brand-new order created already-assigned (the "Nuevo pedido" form) —
+    // by the time this echoes back from the server the order actually exists
+    // locally, so the route calc can include it (a plain re-assign via the
+    // dropdown also ends up here, which just recomputes a second time — harmless).
+    if (o.assignedTo) recomputeRouteForDriver(o.assignedTo);
   }
 
   function removeOrderPin(id) {
     const existing = orders.get(id);
     if (existing) {
-      existing.marker.setMap(null);
+      if (existing.marker) existing.marker.setMap(null);
       orders.delete(id);
     }
     renderOrders();
@@ -436,7 +482,7 @@ async function main() {
           loadStatusEl.textContent = msg;
           loadStatusEl.className = 'status';
         });
-        socket.emit('order:add', { orderNumber: order, lat: point.lat, lng: point.lng, label: point.label, amount, paymentMethod });
+        socket.emit('order:add', { id: genId(), orderNumber: order, lat: point.lat, lng: point.lng, label: point.label, amount, paymentMethod });
         okCount++;
       } catch (e) {
         failed.push(`${order ? `#${order}` : `línea ${i + 1}`}: ${e.message}`);
@@ -452,6 +498,63 @@ async function main() {
       loadStatusEl.textContent = `${okCount} cargados. ${failed.length} con problemas:\n${failed.join('\n')}`;
       loadStatusEl.className = 'status error';
     }
+  });
+
+  newOrderBtn.addEventListener('click', async () => {
+    const orderNumber = newOrderNumEl.value.trim();
+    if (!orderNumber) {
+      newOrderStatusEl.textContent = 'Poné un número de pedido.';
+      newOrderStatusEl.className = 'status error';
+      return;
+    }
+
+    newOrderBtn.disabled = true;
+    const locationRaw = newLocationEl.value.trim();
+    const phone = newPhoneEl.value.trim();
+    const name = newNameEl.value.trim();
+    const assignTo = newAssignEl.value || null;
+    const amount = Geo.parseAmount(newAmountEl.value);
+
+    let point = null;
+    if (locationRaw) {
+      try {
+        point = await Geo.resolveInput(locationRaw, `el pedido #${orderNumber}`, (msg) => {
+          newOrderStatusEl.textContent = msg;
+          newOrderStatusEl.className = 'status';
+        });
+      } catch (e) {
+        newOrderStatusEl.textContent = e.message;
+        newOrderStatusEl.className = 'status error';
+        newOrderBtn.disabled = false;
+        return;
+      }
+    }
+
+    const id = genId();
+    socket.emit('order:add', {
+      id,
+      orderNumber,
+      phone,
+      name,
+      lat: point ? point.lat : null,
+      lng: point ? point.lng : null,
+      label: point ? point.label : '',
+      amount,
+    });
+    if (assignTo) {
+      socket.emit('order:assign', { id, driverId: assignTo });
+      recomputeRouteForDriver(assignTo);
+    }
+
+    newOrderStatusEl.textContent = `Pedido #${orderNumber} agregado.`;
+    newOrderStatusEl.className = 'status ok';
+    newPhoneEl.value = '';
+    newNameEl.value = '';
+    newOrderNumEl.value = '';
+    newLocationEl.value = '';
+    newAmountEl.value = '';
+    newAssignEl.value = '';
+    newOrderBtn.disabled = false;
   });
 }
 
