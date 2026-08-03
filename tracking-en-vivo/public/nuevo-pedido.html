@@ -17,28 +17,29 @@
     <a href="pedidos.html" class="tab-btn">Pedidos</a>
     <a href="dashboard.html" class="tab-btn">Deliverys y mapa</a>
     <a href="caja.html" class="tab-btn">Rendición de caja</a>
+    <button id="logout-btn" class="tab-btn" type="button">Cerrar sesión</button>
   </nav>
 
   <main>
     <section class="panel">
       <h2>Agendar un pedido</h2>
-      <div class="field">
+      <div class="field" data-field="phone">
         <label for="new-phone">Celular</label>
         <input type="text" id="new-phone" placeholder="Ej: 099 123 456">
       </div>
-      <div class="field">
+      <div class="field" data-field="name">
         <label for="new-name">Nombre</label>
         <input type="text" id="new-name" placeholder="Ej: Matias">
       </div>
-      <div class="field">
+      <div class="field" data-field="orderNumber">
         <label for="new-ordernum">Nº de pedido</label>
         <input type="text" id="new-ordernum" placeholder="Ej: 13">
       </div>
-      <div class="field">
+      <div class="field" data-field="location">
         <label for="new-location">Ubicación de entrega (dejar vacío si retira en el local)</label>
         <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
       </div>
-      <div class="field">
+      <div class="field" data-field="amount">
         <label for="new-amount">Monto</label>
         <input type="text" id="new-amount" placeholder="$ 1.630,00">
       </div>
@@ -59,10 +60,31 @@
       <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
       <p id="load-status" class="status"></p>
     </section>
+
+    <section class="panel">
+      <h2>Personalizar campos del formulario</h2>
+      <p class="hint">Elegí qué campos mostrar y cuáles son obligatorios al cargar un pedido nuevo.</p>
+      <div id="field-config-list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Cuenta</h2>
+      <div class="field">
+        <label for="pw-current">Contraseña actual</label>
+        <input type="password" id="pw-current" autocomplete="current-password">
+      </div>
+      <div class="field">
+        <label for="pw-new">Contraseña nueva (mínimo 8 caracteres)</label>
+        <input type="password" id="pw-new" autocomplete="new-password">
+      </div>
+      <button id="pw-btn" type="button" class="primary">Cambiar contraseña</button>
+      <p id="pw-status" class="status"></p>
+    </section>
   </main>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="geo.js?v=4"></script>
   <script src="nuevo-pedido.js"></script>
+  <script src="logout.js"></script>
 </body>
 </html>

@@ -36,24 +36,30 @@ Checkbox "Volver al punto de partida" — si está marcado, el depósito se agre
 
 ---
 
-## 2. `tracking-en-vivo/` (Node + Socket.IO)
+## 2. `tracking-en-vivo/` (Node + Socket.IO + Supabase)
 
 ### Arquitectura
-- `server.js` — Express sirve `public/` como estático, y mantiene **todo el estado en memoria** (se pierde si el servidor se reinicia — no hay base de datos):
-  - `drivers`: `driverId → {name, lat, lng, updatedAt}`
-  - `orders`: `orderId → {orderNumber, phone, name, lat, lng, label, assignedTo, status, amount, paymentMethod, updatedAt}`. `lat`/`lng` son `null` para un pedido que retira en el local (sin ubicación de entrega).
-  - `routes`: `driverId → {stops, latlngs, distanceKm, durationMin}`
-  - `deliveredLogs`: `driverId → [{orderNumber, amount, paymentMethod, deliveredAt}]` — historial de entregas para la rendición de caja (sección 3.1). No se borra con el tiempo, solo al reiniciar el servidor o al tocar "Cerrar rendición".
+- `server.js` — Express sirve `public/` como estático. Estado:
+  - `drivers`: `driverId → {name, lat, lng, updatedAt}` — **en memoria solamente** (se pierde al reiniciar). La posición GPS cambia cada pocos segundos y el delivery la vuelve a mandar apenas reabre `driver.html`, así que persistirla no aporta nada.
+  - `orders`: `orderId → {orderNumber, phone, name, lat, lng, label, assignedTo, status, amount, paymentMethod, reconciledAt, updatedAt}` — **persistido en Supabase** (tabla `orders`), se carga entero al arrancar (`loadOrders()`) y cada cambio se escribe con `persistOrder`/`persistOrderDelete` (fire-and-forget: el Map en memoria + broadcast por socket son los que hacen que la UI se sienta instantánea, Supabase queda consistente unos milisegundos después). `lat`/`lng` son `null` para un pedido que retira en el local. `reconciledAt` marca que ese pedido entregado ya fue incluido en un "Cerrar rendición" anterior (ver 3.1).
+  - `routes`: `driverId → {stops, latlngs, distanceKm, durationMin}` — en memoria, se recalcula on-demand.
+  - `formConfig` — qué campos del formulario de "Nuevo pedido" están visibles/son obligatorios, persistido en la tabla `form_config` (una sola fila, columna `fields` en JSON).
   - Un delivery sin actualizar en 5 min se borra solo (`STALE_MS`).
   - Cada delivery tiene un color fijo asignado por orden de conexión (`COLOR_PALETTE`, 8 colores que rotan).
 
+- **Login de admin** (`admin_users` en Supabase, un solo usuario): `POST /api/login` verifica usuario/contraseña (`bcryptjs`) y devuelve una cookie httpOnly firmada con JWT (`SESSION_SECRET`, 30 días). `POST /api/logout` la borra. `POST /api/change-password` permite cambiarla estando logueado. Si la tabla `admin_users` está vacía al arrancar, `bootstrapAdmin()` crea el usuario inicial con `ADMIN_USERNAME`/`ADMIN_PASSWORD` (variables de entorno, solo se usan esa primera vez).
+  - **Gate de páginas**: un middleware de Express redirige a `/login.html` si falta la cookie válida al pedir `nuevo-pedido.html`, `pedidos.html`, `dashboard.html` o `caja.html`. `driver.html` y `login.html` quedan públicas.
+  - **Gate real (server-side)**: un middleware de Socket.IO (`io.use`) decodifica la misma cookie en el handshake y marca `socket.data.isAdmin`. Los handlers que modifican datos de admin (`order:add`, `order:assign`, `order:edit`, `order:remove`, `driver:clear-log`, `form-config:update`) chequean `socket.data.isAdmin` — el gate de páginas es solo para la experiencia de uso, esta es la barrera real (alguien podría abrir la consola del navegador y emitir eventos directo, sin pasar por ninguna página).
+  - `driver:update`, `driver:stop`, `order:delivered` y `driver:route` quedan sin auth: los usa `driver.html`, que no tiene login.
+
 - `public/geo.js` — misma lógica de geocodificación/ruteo/expansión de links que `optimizador-rutas/app.js`, compartida por las páginas que la necesitan (`nuevo-pedido.js`, `pedidos.js`, `driver.js` — `dashboard.js` y `caja.js` no la usan). También parsea el formato extendido de carga (ver 3.1) y `parseAmount` (convierte "$ 1.630,00" a número).
-- **5 páginas separadas** (archivos HTML/JS propios cada una, no pestañas de una sola página — comparten `style.css` y una barra `<nav class="tabs">` con links entre ellas):
-  1. **`nuevo-pedido.html` + `nuevo-pedido.js`** — formulario individual (celular, nombre, Nº pedido, ubicación opcional, monto, asignar a un delivery) para agendar en el momento, más la carga masiva (textarea, pegado de planilla).
-  2. **`pedidos.html` + `pedidos.js`** — el **registro de pedidos**: una tabla (una fila por pedido, estilo planilla) con Teléfono, Nombre, Nº pedido, Monto, Delivery asignado (dropdown), Método de pago (dropdown editable) y Estado (dropdown: En preparación / En Camino / Entregado). Un pedido nunca se borra solo — sigue en la tabla con estado "Entregado" hasta que lo elimines a mano (🗑), o hasta que se reinicie el servidor.
-  3. **`dashboard.html` + `dashboard.js`** — lista de conectados + el mapa en vivo (los pedidos "Entregado" no muestran pin en el mapa, pero siguen en la tabla de `pedidos.html`).
-  4. **`caja.html` + `caja.js`** — rendición de caja, ver 3.1.
-  5. **`driver.html` + `driver.js`** — la abre cada delivery. Nombre + botón "Empezar a compartir ubicación" → `navigator.geolocation.watchPosition` manda su posición por socket. Muestra sus pedidos asignados (en el orden óptimo, con nombre/teléfono del cliente) y, por cada uno, **3 botones de forma de pago** (Efectivo / Transferencia / Débito) — tocar cualquiera marca el pedido entregado con esa forma de pago (la que el cliente realmente usó al recibirlo, no la que se haya puesto al cargarlo).
+- **6 páginas separadas** (archivos HTML/JS propios cada una — comparten `style.css` y una barra `<nav class="tabs">` con links entre ellas, más un botón "Cerrar sesión" en las 4 de admin):
+  1. **`login.html` + `login.js`** — usuario/contraseña, `POST /api/login`, redirige a `nuevo-pedido.html`.
+  2. **`nuevo-pedido.html` + `nuevo-pedido.js`** — formulario individual (campos según `formConfig`) para agendar en el momento, más la carga masiva (textarea, pegado de planilla) — la carga masiva no respeta `formConfig`, siempre usa el formato de 2/4 columnas. También tiene el panel **"Personalizar campos del formulario"** (mostrar/ocultar y marcar obligatorio cada campo, `form-config:update`) y **"Cuenta"** (cambiar contraseña).
+  3. **`pedidos.html` + `pedidos.js`** — el **registro de pedidos**: una tabla (una fila por pedido, estilo planilla) con Teléfono, Nombre, Nº pedido, Monto, Delivery asignado (dropdown), Método de pago (dropdown editable) y Estado (dropdown: En preparación / En Camino / Entregado). Un pedido nunca se borra solo — sigue en la tabla con estado "Entregado" hasta que lo elimines a mano (🗑).
+  4. **`dashboard.html` + `dashboard.js`** — lista de conectados + el mapa en vivo (los pedidos "Entregado" no muestran pin en el mapa, pero siguen en la tabla de `pedidos.html`).
+  5. **`caja.html` + `caja.js`** — rendición de caja, ver 3.1.
+  6. **`driver.html` + `driver.js`** — la abre cada delivery, sin login. Nombre + botón "Empezar a compartir ubicación" → `navigator.geolocation.watchPosition` manda su posición por socket. Muestra sus pedidos asignados (en el orden óptimo, con nombre/teléfono del cliente) y, por cada uno, **3 botones de forma de pago** (Efectivo / Transferencia / Débito) — tocar cualquiera marca el pedido entregado con esa forma de pago (la que el cliente realmente usó al recibirlo, no la que se haya puesto al cargarlo).
 
   Como son páginas independientes, `nuevo-pedido.js` y `pedidos.js` duplican una versión chica de `recomputeRouteForDriver` cada una (ambas necesitan poder recalcular la ruta de un delivery al asignarle un pedido) — es la misma lógica en los dos archivos, no un bug.
 
@@ -62,30 +68,33 @@ Checkbox "Volver al punto de partida" — si está marcado, el depósito se agre
 Pensado a partir de la planilla real que ya usa el local (control de efectivo/transferencia por delivery al cierre del día).
 
 - **Carga extendida** (carga masiva): cada línea puede tener 2 campos (número + ubicación, como siempre) o 4 separados por **tabulación** (pegado directo de una planilla): `número · ubicación · importe · forma de pago esperada`. `Geo.parseStopLine` detecta el tab y separa los 4 campos; `Geo.parseAmount` interpreta el formato uruguayo ("$ 1.630,00" → `1630`). La forma de pago acá es solo orientativa — la real se confirma al entregar.
-- El **id de cada pedido lo genera el cliente** (`genId()` en `dashboard.js`, mismo patrón que `driverId`) y viaja en el propio `order:add`, para poder asignarlo (`order:assign`) en el mismo tick sin esperar una respuesta del servidor.
+- El **id de cada pedido lo genera el cliente** (`genId()` en `nuevo-pedido.js`, mismo patrón que `driverId`) y viaja en el propio `order:add`, para poder asignarlo (`order:assign`) en el mismo tick sin esperar una respuesta del servidor.
 - **Estado del pedido**: `pending` (En preparación) al crearlo → pasa solo a `en_camino` (En Camino) al asignarlo a un delivery (y vuelve a `pending` si se desasigna) → pasa solo a `entregado` cuando el delivery toca alguno de los 3 botones de forma de pago. El admin puede pisar el estado a mano en cualquier momento desde el dropdown de la tabla.
-- Al marcar un pedido entregado, el servidor lo agrega al `deliveredLogs` del delivery que lo tenía asignado, con la forma de pago que el delivery eligió en ese momento (pisando cualquier valor que se le hubiera puesto antes) — y el pedido **ya no se borra**, solo cambia a estado `entregado` (antes sí se borraba). Solo `order:remove` (🗑 en la tabla) borra un pedido de verdad.
-- La sección "Rendición de caja por delivery" en `dashboard.js` (`renderCashList`) suma, por delivery: efectivo cobrado (todo lo que no sea claramente otro medio de pago) vs. otros medios, y con dos campos manuales que vos cargás (**Cambio inicial**, **Gastos**) calcula `Debe entregar = efectivo cobrado + cambio - gastos` — misma lógica que la planilla original. "Cerrar rendición" limpia el historial de ese delivery (`driver:clear-log`).
+- Al marcar un pedido entregado (`order:delivered`), el servidor solo actualiza ese mismo pedido: `status='entregado'` y `paymentMethod` con lo que eligió el delivery (pisando cualquier valor puesto antes) — **ya no se borra**. Solo `order:remove` (🗑 en `pedidos.html`) borra un pedido de verdad.
+- `caja.js` (`renderCashList`) ya no depende de un historial aparte: filtra `orders` por `assignedTo === driverId && status === 'entregado' && !reconciledAt` y suma efectivo cobrado (todo lo que no sea claramente otro medio de pago) vs. otros medios. Con dos campos manuales que vos cargás (**Cambio inicial**, **Gastos**) calcula `Debe entregar = efectivo cobrado + cambio - gastos` — misma lógica que la planilla original.
+- **"Cerrar rendición"** (`driver:clear-log`) ya no borra nada — marca `reconciledAt = ahora` en todos los pedidos entregados de ese delivery que todavía no tenían. Esos pedidos siguen para siempre en `pedidos.html` con estado "Entregado", solo dejan de sumar en el total "sin rendir" de `caja.html`. Esto es mejor que el comportamiento viejo (que vaciaba el historial y lo perdía).
 - Los campos Cambio/Gastos son **solo del navegador que los carga** (no se sincronizan por socket) — si abrís el panel en otra pestaña no los vas a ver ahí, solo los totales que sí vienen del servidor.
 
 ### Eventos de Socket.IO (referencia)
 
-| Evento | Quién lo emite | Payload | Qué hace |
-|---|---|---|---|
-| `drivers:snapshot` / `orders:snapshot` / `routes:snapshot` / `deliveredLogs:snapshot` | servidor, al conectarse | lista completa | estado inicial para un cliente recién conectado |
-| `driver:update` | driver.js (posición) | `{id, name, lat, lng}` | crea/actualiza un delivery; el servidor le agrega `color` y hace broadcast |
-| `driver:stop` | driver.js (botón manual) | `{id}` | borra al delivery y su ruta |
-| `driver:remove` | servidor (broadcast) | `{id}` | avisa a todos que ese delivery ya no está |
-| `order:add` | dashboard.js (form individual o carga masiva) | `{id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod}` | crea un pedido; `lat`/`lng` opcionales (`null` = retira) |
-| `order:assign` | dashboard.js (dropdown o form individual) | `{id, driverId}` | asigna/desasigna un pedido; auto-cambia el estado (pending ↔ en_camino) salvo que ya esté entregado |
-| `order:edit` | dashboard.js (dropdowns de la tabla) | `{id, fields: {status?, paymentMethod?}}` | el admin pisa a mano el estado y/o la forma de pago |
-| `order:delivered` | driver.js (botón de forma de pago) | `{id, paymentMethod}` | pasa el pedido a estado `entregado` (ya no se borra) y lo agrega al `deliveredLogs` del delivery asignado |
-| `order:update` | servidor (broadcast) | pedido completo | sincroniza un pedido (nuevo o modificado) en todos los clientes |
-| `order:remove` | dashboard.js (🗑 en la tabla) → servidor (broadcast) | `{id}` | borra un pedido de verdad (único caso en que desaparece de la tabla) |
-| `driver:route` | dashboard.js **o** driver.js (quien recalcule) | `{driverId, stops, latlngs, distanceKm, durationMin}` | comparte la ruta ya calculada (así nadie más repite la llamada a OSRM) |
-| `driver:clear-log` | dashboard.js ("Cerrar rendición") | `{driverId}` | vacía el historial de entregas de ese delivery |
-| `driver:delivered-log` | servidor (broadcast) | `{driverId, log}` | sincroniza el historial de entregas (rendición de caja) |
-| `route:remove` | servidor (broadcast) | `{driverId}` | borra la ruta dibujada de ese delivery |
+"Admin" en la columna Auth significa que el servidor descarta el evento si `socket.data.isAdmin` es falso (ver sección de login más arriba).
+
+| Evento | Quién lo emite | Auth | Payload | Qué hace |
+|---|---|---|---|---|
+| `drivers:snapshot` / `orders:snapshot` / `routes:snapshot` / `form-config:snapshot` | servidor, al conectarse | — | lista completa / config | estado inicial para un cliente recién conectado |
+| `driver:update` | driver.js (posición) | — | `{id, name, lat, lng}` | crea/actualiza un delivery; el servidor le agrega `color` y hace broadcast |
+| `driver:stop` | driver.js (botón manual) | — | `{id}` | borra al delivery y su ruta |
+| `driver:remove` | servidor (broadcast) | — | `{id}` | avisa a todos que ese delivery ya no está |
+| `order:add` | nuevo-pedido.js (form individual o carga masiva) | admin | `{id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod}` | crea un pedido y lo guarda en Supabase; `lat`/`lng` opcionales (`null` = retira) |
+| `order:assign` | pedidos.js / nuevo-pedido.js | admin | `{id, driverId}` | asigna/desasigna un pedido; auto-cambia el estado (pending ↔ en_camino) salvo que ya esté entregado |
+| `order:edit` | pedidos.js (dropdowns de la tabla) | admin | `{id, fields: {status?, paymentMethod?}}` | el admin pisa a mano el estado y/o la forma de pago |
+| `order:delivered` | driver.js (botón de forma de pago) | — | `{id, paymentMethod}` | pasa el pedido a estado `entregado` (ya no se borra) |
+| `order:update` | servidor (broadcast) | — | pedido completo | sincroniza un pedido (nuevo o modificado) en todos los clientes |
+| `order:remove` | pedidos.js (🗑 en la tabla) → servidor (broadcast) | admin | `{id}` | borra un pedido de verdad (único caso en que desaparece de la tabla) y de Supabase |
+| `driver:route` | nuevo-pedido.js / pedidos.js / driver.js (quien recalcule) | — | `{driverId, stops, latlngs, distanceKm, durationMin}` | comparte la ruta ya calculada (así nadie más repite la llamada a OSRM) |
+| `driver:clear-log` | caja.js ("Cerrar rendición") | admin | `{driverId}` | marca como conciliados (`reconciledAt`) los pedidos entregados sin rendir de ese delivery |
+| `route:remove` | servidor (broadcast) | — | `{driverId}` | borra la ruta dibujada de ese delivery |
+| `form-config:update` | nuevo-pedido.js (panel de personalización) | admin | config completa | guarda en Supabase qué campos se muestran/exigen y lo re-emite a todos |
 
 ### ¿Quién recalcula la ruta óptima de un delivery?
 Dos disparadores, para que funcione aunque uno de los dos no esté con la pantalla abierta:
@@ -142,7 +151,12 @@ Se probó primero con Nominatim (gratis, sin key) pero tenía errores reales de 
 | Proyecto | Dónde | Notas |
 |---|---|---|
 | `optimizador-rutas/` | GitHub Pages | `https://alegpdev.github.io/AppDelivery/optimizador-rutas/` — se actualiza solo con cada push a `main`. |
-| `tracking-en-vivo/` | Render.com (plan free) | Root directory `tracking-en-vivo`, build `npm install`, start `npm start`. Se redespliega solo con cada push. **El plan gratis "duerme" el servidor tras 15 min sin tráfico** (incluye mensajes de WebSocket, no solo pedidos HTTP nuevos) — la primera conexión después tarda ~1 minuto en responder mientras se despierta. Si al menos un delivery está mandando ubicación, esto no pasa. |
+| `tracking-en-vivo/` | Render.com (plan free) | Root directory `tracking-en-vivo`, build `npm install`, start `npm start`. Se redespliega solo con cada push. **El plan gratis "duerme" el servidor tras 15 min sin tráfico** (incluye mensajes de WebSocket, no solo pedidos HTTP nuevos) — la primera conexión después tarda ~1 minuto en responder mientras se despierta. Si al menos un delivery está mandando ubicación, esto no pasa. Necesita las variables de entorno de abajo configuradas en Render (Settings → Environment). |
+
+**Variables de entorno necesarias** (`tracking-en-vivo/.env` en local, ver `.env.example`; en Render se cargan en Settings → Environment, no en un archivo):
+- `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` — del proyecto de Supabase (Settings → API). La *service role key* nunca se expone al navegador, solo la usa el servidor.
+- `SESSION_SECRET` — string random largo, firma las cookies de sesión del admin.
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` — solo se usan la primera vez que arranca el servidor con la tabla `admin_users` vacía, para crear el usuario inicial. Cambios posteriores de contraseña se hacen desde "Cuenta" en `nuevo-pedido.html`, no tocando esta variable.
 
 Repo: `https://github.com/AleGPDEV/AppDelivery` (público).
 
@@ -167,8 +181,8 @@ npm start   # sirve en http://localhost:3000
 
 ## 8. Limitaciones conocidas / a tener en cuenta
 
-- **Sin base de datos**: todo el estado de `tracking-en-vivo` (deliverys, pedidos, rutas) vive en memoria y se pierde si el servidor se reinicia.
-- **Sin login / multi-cliente**: cualquiera con el link puede ver y operar todo. No está pensado todavía para vender a más de un restaurante (haría falta separar cuentas/datos por cliente).
+- **Persistencia parcial**: pedidos, usuario admin y configuración de campos viven en Supabase (sobreviven a un reinicio); deliverys y rutas siguen solo en memoria (a propósito, ver sección 2 — no aporta persistir una posición GPS que cambia cada pocos segundos).
+- **Un solo admin, sin multi-cliente**: hay un único usuario/contraseña de administrador (sin roles ni cuentas separadas). No está pensado todavía para vender a más de un restaurante (haría falta separar cuentas/datos por cliente en Supabase, ej. una fila por restaurante y filtrar todo por esa clave).
 - **Tracking en segundo plano**: es una web, no una app nativa — si el celular del delivery se bloquea o cambia de app, el navegador frena la ubicación por su cuenta (no hay forma de evitarlo desde una web). Solo una app nativa (Android/iOS) resolvería esto de raíz.
 - **Geocodificación de direcciones de texto**: aunque Google es mucho mejor que Nominatim, no es infalible — por eso los pines son arrastrables y las direcciones "aproximadas" (a nivel de calle) se marcan para revisar.
 - **corsproxy.io y OSRM son servicios de terceros gratuitos**: no tienen garantía de actividad. Si alguno falla, la app avisa y sigue funcionando con una alternativa más simple (pegar el link completo, o distancia en línea recta) en vez de romperse.

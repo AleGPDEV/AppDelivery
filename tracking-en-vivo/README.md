@@ -2,17 +2,24 @@
 
 Servidor Node.js + Socket.IO con 5 páginas separadas (cada una su propio HTML/JS, no pestañas de una sola página):
 
-- **`/nuevo-pedido.html`** — agendar un pedido (celular, nombre, número, ubicación opcional, monto, asignar a un delivery) o cargar varios de una pegando desde una planilla.
+- **`/login.html`** — pantalla de acceso del admin (usuario/contraseña).
+- **`/nuevo-pedido.html`** — agendar un pedido (campos personalizables, ver abajo) o cargar varios de una pegando desde una planilla. También tiene la configuración de campos y el cambio de contraseña.
 - **`/pedidos.html`** — el registro de pedidos: una tabla con Teléfono/Nombre/Nº/Monto/Delivery asignado/Método de pago/Estado, todo editable ahí mismo.
 - **`/dashboard.html`** — lista de deliverys conectados + el mapa en vivo con sus pedidos coloreados por delivery.
 - **`/caja.html`** — rendición de caja por delivery.
-- **`/driver.html`** — la abre cada delivery desde su celular. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente; ahí también ve sus pedidos asignados (en el orden óptimo) y elige la forma de pago al entregar.
+- **`/driver.html`** — la abre cada delivery desde su celular, sin login. Escribe su nombre, toca "Empezar a compartir ubicación" y el navegador manda su posición GPS automáticamente; ahí también ve sus pedidos asignados (en el orden óptimo) y elige la forma de pago al entregar.
 
-No usa base de datos: todo se guarda en memoria mientras el servidor está corriendo (se pierde si se reinicia), y un delivery se saca del mapa automáticamente si no manda una actualización en 5 minutos.
+Las primeras 4 páginas requieren haber iniciado sesión como admin (si no, redirigen a `/login.html`); `driver.html` y `login.html` quedan públicas.
+
+**Persistencia (Supabase)**: los pedidos, el usuario admin y la configuración de campos viven en Supabase (Postgres), así que sobreviven a un reinicio/redeploy del servidor. Los deliverys (posición GPS en vivo) siguen solo en memoria — no vale la pena persistir algo que cambia cada pocos segundos y que de todos modos se recrea solo apenas el delivery vuelve a compartir ubicación.
+
+**Campos personalizables**: desde "Nuevo pedido" el admin elige qué campos mostrar y cuáles son obligatorios (celular, nombre, nº de pedido, ubicación, monto) — se guarda en Supabase y aplica para todos.
 
 La geocodificación de direcciones de texto usa Google Maps (Geocoding vía la Maps JavaScript API, cargada en `public/geo.js`) — ver la nota sobre la API key en el README de `optimizador-rutas/`, que aplica igual acá (misma key, mismas restricciones de sitio en Google Cloud Console).
 
 ## Correrlo localmente
+
+Necesita un archivo `.env` (ver `.env.example`) con `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SESSION_SECRET`, `ADMIN_USERNAME` y `ADMIN_PASSWORD`. El admin se crea solo la primera vez que arranca el servidor (si la tabla `admin_users` está vacía).
 
 ```bash
 npm install
@@ -20,6 +27,7 @@ npm start
 ```
 
 Abre:
+- Login: http://localhost:3000/login.html
 - Delivery: http://localhost:3000/driver.html
 - Nuevo pedido: http://localhost:3000/nuevo-pedido.html
 - Pedidos: http://localhost:3000/pedidos.html

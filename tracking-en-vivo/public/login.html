@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iniciar sesión</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Deliverys en vivo</h1>
+    <p class="subtitle">Iniciá sesión para administrar pedidos y deliverys.</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="field">
+        <label for="login-user">Usuario</label>
+        <input type="text" id="login-user" autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="login-pass">Contraseña</label>
+        <input type="password" id="login-pass" autocomplete="current-password">
+      </div>
+      <button id="login-btn" type="button" class="primary">Entrar</button>
+      <p id="login-status" class="status"></p>
+    </section>
+  </main>
+
+  <script src="login.js"></script>
+</body>
+</html>

@@ -9,6 +9,11 @@ const newAmountEl = document.getElementById('new-amount');
 const newAssignEl = document.getElementById('new-assign');
 const newOrderBtn = document.getElementById('new-order-btn');
 const newOrderStatusEl = document.getElementById('new-order-status');
+const fieldConfigListEl = document.getElementById('field-config-list');
+const pwCurrentEl = document.getElementById('pw-current');
+const pwNewEl = document.getElementById('pw-new');
+const pwBtnEl = document.getElementById('pw-btn');
+const pwStatusEl = document.getElementById('pw-status');
 
 function genId() {
   return `o-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -20,6 +25,103 @@ const socket = io();
 // them in the "Asignar a" dropdown) — no map, no order list rendering here.
 const drivers = new Map(); // driverId -> { name, lat, lng, color }
 const orders = new Map(); // orderId -> order data, kept locally just so a freshly-created order can be routed right away
+
+// Which fields the admin chose to show/require in the form below — persisted
+// server-side (Supabase) so it applies for every device, not just this one.
+const FIELD_LABELS = {
+  phone: 'Celular',
+  name: 'Nombre',
+  orderNumber: 'Nº de pedido',
+  location: 'Ubicación de entrega',
+  amount: 'Monto',
+};
+let formConfig = {};
+
+function applyFormConfig() {
+  Object.keys(FIELD_LABELS).forEach((key) => {
+    const wrapper = document.querySelector(`[data-field="${key}"]`);
+    const cfg = formConfig[key] || { visible: true, required: false };
+    if (wrapper) wrapper.style.display = cfg.visible === false ? 'none' : '';
+  });
+}
+
+function renderFieldConfig() {
+  fieldConfigListEl.innerHTML = '';
+  Object.keys(FIELD_LABELS).forEach((key) => {
+    const cfg = formConfig[key] || { visible: true, required: false };
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '16px';
+    row.style.padding = '6px 0';
+
+    const label = document.createElement('span');
+    label.style.flex = '1';
+    label.textContent = FIELD_LABELS[key];
+
+    const visibleLabel = document.createElement('label');
+    visibleLabel.style.display = 'flex';
+    visibleLabel.style.alignItems = 'center';
+    visibleLabel.style.gap = '4px';
+    visibleLabel.style.fontSize = '0.85rem';
+    const visibleCheck = document.createElement('input');
+    visibleCheck.type = 'checkbox';
+    visibleCheck.checked = cfg.visible !== false;
+    visibleLabel.append(visibleCheck, 'Mostrar');
+
+    const requiredLabel = document.createElement('label');
+    requiredLabel.style.display = 'flex';
+    requiredLabel.style.alignItems = 'center';
+    requiredLabel.style.gap = '4px';
+    requiredLabel.style.fontSize = '0.85rem';
+    const requiredCheck = document.createElement('input');
+    requiredCheck.type = 'checkbox';
+    requiredCheck.checked = !!cfg.required;
+    requiredCheck.disabled = !visibleCheck.checked;
+    requiredLabel.append(requiredCheck, 'Obligatorio');
+
+    function emitUpdate() {
+      requiredCheck.disabled = !visibleCheck.checked;
+      formConfig = { ...formConfig, [key]: { visible: visibleCheck.checked, required: visibleCheck.checked && requiredCheck.checked } };
+      socket.emit('form-config:update', formConfig);
+    }
+    visibleCheck.addEventListener('change', emitUpdate);
+    requiredCheck.addEventListener('change', emitUpdate);
+
+    row.append(label, visibleLabel, requiredLabel);
+    fieldConfigListEl.appendChild(row);
+  });
+}
+
+socket.on('form-config:snapshot', (cfg) => {
+  formConfig = cfg || {};
+  applyFormConfig();
+  renderFieldConfig();
+});
+
+pwBtnEl.addEventListener('click', async () => {
+  const currentPassword = pwCurrentEl.value;
+  const newPassword = pwNewEl.value;
+  pwBtnEl.disabled = true;
+  pwStatusEl.textContent = '';
+  try {
+    const res = await fetch('/api/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo cambiar la contraseña.');
+    pwStatusEl.textContent = 'Contraseña actualizada.';
+    pwStatusEl.className = 'status ok';
+    pwCurrentEl.value = '';
+    pwNewEl.value = '';
+  } catch (e) {
+    pwStatusEl.textContent = e.message;
+    pwStatusEl.className = 'status error';
+  }
+  pwBtnEl.disabled = false;
+});
 
 function renderAssignOptions() {
   const previousValue = newAssignEl.value;
@@ -108,14 +210,26 @@ loadBtn.addEventListener('click', async () => {
   }
 });
 
+const FIELD_INPUTS = {
+  phone: newPhoneEl,
+  name: newNameEl,
+  orderNumber: newOrderNumEl,
+  location: newLocationEl,
+  amount: newAmountEl,
+};
+
 newOrderBtn.addEventListener('click', async () => {
-  const orderNumber = newOrderNumEl.value.trim();
-  if (!orderNumber) {
-    newOrderStatusEl.textContent = 'Poné un número de pedido.';
+  const missing = Object.keys(FIELD_INPUTS).filter((key) => {
+    const cfg = formConfig[key];
+    return cfg && cfg.visible !== false && cfg.required && !FIELD_INPUTS[key].value.trim();
+  });
+  if (missing.length > 0) {
+    newOrderStatusEl.textContent = `Falta completar: ${missing.map((k) => FIELD_LABELS[k]).join(', ')}.`;
     newOrderStatusEl.className = 'status error';
     return;
   }
 
+  const orderNumber = newOrderNumEl.value.trim();
   newOrderBtn.disabled = true;
   const locationRaw = newLocationEl.value.trim();
   const phone = newPhoneEl.value.trim();

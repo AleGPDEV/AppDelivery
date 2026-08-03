@@ -91,6 +91,11 @@ main.wide {
   display: inline-block;
 }
 
+#logout-btn {
+  margin-left: auto;
+  color: var(--danger);
+}
+
 .tab-btn.active {
   color: var(--primary);
   background: var(--panel);
