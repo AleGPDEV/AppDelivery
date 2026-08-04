@@ -2,6 +2,9 @@ const dayStatusEl = document.getElementById('day-status');
 const dayStatusMsgEl = document.getElementById('day-status-msg');
 const startDayBtn = document.getElementById('start-day-btn');
 const endDayBtn = document.getElementById('end-day-btn');
+const cashFieldsEl = document.getElementById('cash-fields');
+const cashStartEl = document.getElementById('cash-start');
+const cashEndEl = document.getElementById('cash-end');
 const dailyChartEl = document.getElementById('daily-chart');
 const dailyTbodyEl = document.getElementById('daily-tbody');
 const monthlyTbodyEl = document.getElementById('monthly-tbody');
@@ -36,10 +39,12 @@ function renderDayStatus() {
     dayStatusEl.textContent = `Día abierto desde ${fmtDateTime(currentDay.started_at)} (${fmtDate(currentDay.date)}).`;
     startDayBtn.disabled = true;
     endDayBtn.disabled = false;
+    cashFieldsEl.style.display = '';
   } else {
     dayStatusEl.textContent = 'Ningún día abierto ahora mismo.';
     startDayBtn.disabled = false;
     endDayBtn.disabled = true;
+    cashFieldsEl.style.display = 'none';
   }
 }
 
@@ -91,13 +96,23 @@ function renderDailyTable(days) {
     const tdDate = document.createElement('td'); tdDate.textContent = fmtDate(d.date);
     const tdOrders = document.createElement('td'); tdOrders.textContent = d.total_orders || 0;
     const tdRevenue = document.createElement('td'); tdRevenue.textContent = fmtMoney(d.total_revenue);
-    tr.append(tdDate, tdOrders, tdRevenue);
+    const tdCashExpected = document.createElement('td'); tdCashExpected.textContent = d.cash_expected != null ? fmtMoney(d.cash_expected) : '—';
+    const tdCashEnd = document.createElement('td'); tdCashEnd.textContent = d.cash_end != null ? fmtMoney(d.cash_end) : '—';
+    const tdDiff = document.createElement('td');
+    if (d.cash_end != null && d.cash_expected != null) {
+      const diff = d.cash_end - d.cash_expected;
+      tdDiff.textContent = `${diff >= 0 ? '+' : ''}${fmtMoney(diff)}`;
+      tdDiff.style.color = Math.abs(diff) < 0.01 ? 'var(--ok)' : 'var(--danger)';
+    } else {
+      tdDiff.textContent = '—';
+    }
+    tr.append(tdDate, tdOrders, tdRevenue, tdCashExpected, tdCashEnd, tdDiff);
     dailyTbodyEl.appendChild(tr);
   });
   if (dailyTbodyEl.children.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 3;
+    td.colSpan = 6;
     td.className = 'hint';
     td.textContent = 'Todavía no cerraste ningún día.';
     tr.appendChild(td);
@@ -177,6 +192,14 @@ startDayBtn.addEventListener('click', async () => {
 });
 
 endDayBtn.addEventListener('click', async () => {
+  const cashStart = Geo.parseAmount(cashStartEl.value);
+  const cashEnd = Geo.parseAmount(cashEndEl.value);
+  if (cashStart == null || cashEnd == null) {
+    dayStatusMsgEl.textContent = 'Completá el efectivo inicial y final antes de finalizar el día.';
+    dayStatusMsgEl.className = 'status error';
+    return;
+  }
+
   const active = Array.from(orders.values()).filter((o) => !o.archivedAt);
   const notDelivered = active.filter((o) => o.status !== 'entregado');
 
@@ -189,11 +212,15 @@ endDayBtn.addEventListener('click', async () => {
   endDayBtn.disabled = true;
   dayStatusMsgEl.textContent = '';
   try {
-    const { day } = await api('/api/business-day/end', { method: 'POST' });
+    const { day } = await api('/api/business-day/end', { method: 'POST', body: JSON.stringify({ cashStart, cashEnd }) });
     currentDay = null;
     renderDayStatus();
-    dayStatusMsgEl.textContent = `Día cerrado: ${day.total_orders} pedidos, ${fmtMoney(day.total_revenue)}.`;
+    const diff = day.cash_end - day.cash_expected;
+    const diffText = Math.abs(diff) < 0.01 ? 'cuadra' : `diferencia de ${diff >= 0 ? '+' : ''}${fmtMoney(diff)}`;
+    dayStatusMsgEl.textContent = `Día cerrado: ${day.total_orders} pedidos, ${fmtMoney(day.total_revenue)} en total. Efectivo esperado ${fmtMoney(day.cash_expected)}, contado ${fmtMoney(day.cash_end)} (${diffText}).`;
     dayStatusMsgEl.className = 'status ok';
+    cashStartEl.value = '';
+    cashEndEl.value = '';
     loadHistory();
   } catch (e) {
     dayStatusMsgEl.textContent = e.message;
@@ -205,6 +232,7 @@ endDayBtn.addEventListener('click', async () => {
 socket.on('orders:snapshot', (list) => list.forEach((o) => orders.set(o.id, o)));
 socket.on('order:update', (o) => orders.set(o.id, o));
 socket.on('order:remove', ({ id }) => orders.delete(id));
+socket.on('business-day:status', ({ day }) => { currentDay = day; renderDayStatus(); });
 
 loadCurrentDay();
 loadHistory();

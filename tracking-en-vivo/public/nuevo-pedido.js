@@ -15,12 +15,30 @@ const pwCurrentEl = document.getElementById('pw-current');
 const pwNewEl = document.getElementById('pw-new');
 const pwBtnEl = document.getElementById('pw-btn');
 const pwStatusEl = document.getElementById('pw-status');
+const dayGateMsgEl = document.getElementById('day-gate-msg');
 
 function genId() {
   return `o-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 const socket = io();
+
+let dayOpen = false;
+
+// Sin un día abierto (ver analiticas.html) no tiene sentido cargar pedidos
+// nuevos — quedarían sueltos sin pertenecer a ningún cierre. El servidor
+// también rechaza order:add sin día abierto, esto es solo para que no
+// parezca que el botón "no anda" sin explicación.
+function applyDayGate() {
+  dayGateMsgEl.style.display = dayOpen ? 'none' : '';
+  newOrderBtn.disabled = !dayOpen;
+  loadBtn.disabled = !dayOpen;
+}
+
+socket.on('business-day:status', ({ day }) => {
+  dayOpen = !!day;
+  applyDayGate();
+});
 
 // This page only needs drivers' live positions (to compute routes and offer
 // them in the "Asignar a" dropdown) — no map, no order list rendering here.

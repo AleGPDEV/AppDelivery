@@ -239,53 +239,87 @@ async function bootstrapAdmin() {
 // "Día comercial": un botón "Iniciar día"/"Finalizar día" en analiticas.html,
 // pensado para reflejar cómo el local ya piensa su jornada (no necesariamente
 // medianoche a medianoche — un viernes a la noche puede seguir "abierto"
-// después de las 00:00). Al finalizar, se archivan los pedidos activos
-// (dejan de verse en pedidos.html) y se congela un total de ese día para que
-// ediciones futuras no lo alteren.
-async function getOpenBusinessDay() {
+// después de las 00:00). Mientras no haya un día abierto, no se pueden cargar
+// pedidos nuevos (ver el chequeo en order:add). Al finalizar, se archivan los
+// pedidos activos (dejan de verse en pedidos.html) y se congela un total de
+// ese día para que ediciones futuras no lo alteren.
+
+// Cacheado en memoria (no una consulta por request) para poder mandarlo en
+// el snapshot inicial de cada socket sin pegarle a Supabase en cada conexión.
+let openBusinessDay = null;
+
+async function loadOpenBusinessDay() {
   const { data, error } = await supabase.from('business_days').select('*').is('ended_at', null).order('started_at', { ascending: false }).limit(1).maybeSingle();
-  if (error) { console.error('Error leyendo business_days en Supabase:', error.message); return null; }
-  return data;
+  if (error) { console.error('Error leyendo business_days en Supabase:', error.message); return; }
+  openBusinessDay = data || null;
+}
+
+function isCashPayment(paymentMethod) {
+  const p = (paymentMethod || '').toLowerCase();
+  return p === '' || p.includes('efectivo') || p === 'retira';
 }
 
 app.post('/api/business-day/start', requireAuth, async (req, res) => {
-  const open = await getOpenBusinessDay();
-  if (open) return res.json({ day: open });
+  if (openBusinessDay) return res.json({ day: openBusinessDay });
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase.from('business_days')
     .insert({ date: today, started_at: new Date().toISOString() })
     .select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  openBusinessDay = data;
+  io.emit('business-day:status', { day: openBusinessDay });
   res.json({ day: data });
 });
 
-app.get('/api/business-day/current', requireAuth, async (req, res) => {
-  res.json({ day: await getOpenBusinessDay() });
+app.get('/api/business-day/current', requireAuth, (req, res) => {
+  res.json({ day: openBusinessDay });
 });
 
 // Archiva TODOS los pedidos activos (no solo los entregados) — si queda
 // alguno sin entregar, el frontend ya avisó y pidió confirmación antes de
 // llegar acá. Los ingresos solo suman los que sí se entregaron (plata real
-// cobrada); la cantidad de pedidos cuenta todo lo archivado.
+// cobrada); la cantidad de pedidos cuenta todo lo archivado. `cashStart`
+// (efectivo con el que arrancó la caja) + lo cobrado en efectivo según los
+// pedidos entregados = `cashExpected`, para comparar contra `cashEnd` (lo que
+// realmente se contó al cerrar) — mismo espíritu que "Cambio inicial"/
+// "Gastos" en caja.js, pero a nivel de todo el día en vez de por delivery.
 app.post('/api/business-day/end', requireAuth, async (req, res) => {
-  const open = await getOpenBusinessDay();
-  if (!open) return res.status(400).json({ error: 'No hay ningún día abierto.' });
+  if (!openBusinessDay) return res.status(400).json({ error: 'No hay ningún día abierto.' });
+  const cashStart = Number(req.body?.cashStart);
+  const cashEnd = Number(req.body?.cashEnd);
+  if (!Number.isFinite(cashStart) || !Number.isFinite(cashEnd)) {
+    return res.status(400).json({ error: 'Falta el efectivo inicial y/o final.' });
+  }
 
   const now = Date.now();
   const active = Array.from(orders.entries()).filter(([, o]) => !o.archivedAt);
   let totalRevenue = 0;
+  let cashFromOrders = 0;
   active.forEach(([id, o]) => {
     o.archivedAt = now;
     o.updatedAt = now;
-    if (o.status === 'entregado' && typeof o.amount === 'number') totalRevenue += o.amount;
+    if (o.status === 'entregado' && typeof o.amount === 'number') {
+      totalRevenue += o.amount;
+      if (isCashPayment(o.paymentMethod)) cashFromOrders += o.amount;
+    }
     persistOrder(id, o);
     io.emit('order:update', { id, ...o });
   });
 
+  const cashExpected = cashStart + cashFromOrders;
   const { data, error } = await supabase.from('business_days')
-    .update({ ended_at: new Date(now).toISOString(), total_orders: active.length, total_revenue: totalRevenue })
-    .eq('id', open.id).select().maybeSingle();
+    .update({
+      ended_at: new Date(now).toISOString(),
+      total_orders: active.length,
+      total_revenue: totalRevenue,
+      cash_start: cashStart,
+      cash_end: cashEnd,
+      cash_expected: cashExpected,
+    })
+    .eq('id', openBusinessDay.id).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  openBusinessDay = null;
+  io.emit('business-day:status', { day: null });
   res.json({ day: data });
 });
 
@@ -306,6 +340,7 @@ io.on('connection', (socket) => {
   socket.emit('orders:snapshot', orderList());
   socket.emit('routes:snapshot', routeList());
   socket.emit('form-config:snapshot', formConfig);
+  socket.emit('business-day:status', { day: openBusinessDay });
 
   socket.on('driver:update', ({ id, name, lat, lng }) => {
     if (!id || typeof lat !== 'number' || typeof lng !== 'number') return;
@@ -328,7 +363,7 @@ io.on('connection', (socket) => {
   // `id` lo genera el cliente (igual que el driverId) para poder asignarlo
   // en el mismo tick sin esperar una confirmación del servidor.
   socket.on('order:add', ({ id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod, custom }) => {
-    if (!socket.data.isAdmin || !id) return;
+    if (!socket.data.isAdmin || !id || !openBusinessDay) return;
     const hasLocation = typeof lat === 'number' && typeof lng === 'number';
     const entry = {
       orderNumber: (orderNumber || '').toString().slice(0, 20),
@@ -452,6 +487,7 @@ async function start() {
   await bootstrapAdmin();
   await loadFormConfig();
   await loadOrders();
+  await loadOpenBusinessDay();
   server.listen(PORT, () => {
     console.log(`Tracking en vivo corriendo en http://localhost:${PORT}`);
     console.log(`Login:         http://localhost:${PORT}/login.html`);
