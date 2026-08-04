@@ -83,6 +83,42 @@ async function updateDriverMarkerOnMap(lat, lng) {
   }
 }
 
+// Números uruguayos: 09X XXX XXX (9 dígitos, arranca en 0) → +598 sin el 0,
+// para armar un link de WhatsApp directo. Si ya viene con 598 o es otra
+// forma, se manda tal cual (mejor esfuerzo, no hay forma de saber el país
+// con certeza a partir del número solo).
+function whatsappLink(phone) {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  const intl = digits.startsWith('598') ? digits : (digits.startsWith('0') && digits.length === 9) ? `598${digits.slice(1)}` : `598${digits}`;
+  return `https://wa.me/${intl}`;
+}
+
+// Teléfono y "cómo llegar" siempre se muestran (no es opcional); los campos
+// personalizados sí, según `formConfig.customFields[].showToDriver` (lo elige
+// el admin desde "Personalizar campos del formulario" en nuevo-pedido.html).
+function orderPopupContent(o) {
+  const lines = [`<strong>Pedido #${o.orderNumber || '?'}</strong>`];
+  if (o.name) lines.push(o.name);
+  if (o.phone) {
+    const wa = whatsappLink(o.phone);
+    lines.push(wa ? `<a href="${wa}" target="_blank" rel="noopener">${o.phone} (WhatsApp)</a>` : o.phone);
+  }
+  if (o.label) lines.push(o.label);
+  if (o.lat != null && o.lng != null && lastPosition) {
+    const url = Geo.buildGoogleMapsUrl([lastPosition, { lat: o.lat, lng: o.lng }], false);
+    lines.push(`<a href="${url}" target="_blank" rel="noopener">Cómo llegar desde acá</a>`);
+  }
+  (formConfig.customFields || []).forEach((f) => {
+    if (f.showToDriver === false) return;
+    const value = o.custom && o.custom[f.key];
+    if (value) lines.push(`${f.label}: ${value}`);
+  });
+  // Color fijo: el InfoWindow de Google Maps siempre tiene fondo blanco, pero
+  // sin esto el texto hereda var(--text) de la página — invisible en modo oscuro.
+  return `<div style="color:#1c1e21; font-size:0.9rem; line-height:1.5;">${lines.join('<br>')}</div>`;
+}
+
 async function updateOrderMarkersOnMap(mine) {
   const api = await getMap();
   const mineIds = new Set(mine.map(([id]) => id));
@@ -98,9 +134,11 @@ async function updateOrderMarkersOnMap(mine) {
       existing.setPosition(position);
     } else {
       const marker = new api.maps.Marker({ position, map: api.map, icon: svgIcon(api.maps, '#dc2626', '📦', 36, 'square') });
-      const who = o.name ? `${o.name}${o.phone ? ` (${o.phone})` : ''}<br>` : '';
-      const infoWindow = new api.maps.InfoWindow({ content: `<strong>Pedido #${o.orderNumber || '?'}</strong><br>${who}${o.label}` });
-      marker.addListener('click', () => infoWindow.open({ anchor: marker, map: api.map }));
+      const infoWindow = new api.maps.InfoWindow();
+      marker.addListener('click', () => {
+        infoWindow.setContent(orderPopupContent(myOrders.get(id) || o));
+        infoWindow.open({ anchor: marker, map: api.map });
+      });
       api.orderMarkers.set(id, marker);
       changed = true;
     }
@@ -140,6 +178,10 @@ const myOrders = new Map();
 // Order ids in the optimal visiting sequence, from the last computed route.
 let myRouteOrder = [];
 let myCashStart = 0; // lo carga el admin desde caja.html — acá es de solo lectura
+// Solo se usa acá para saber qué campos personalizados mostrar en el popup
+// de cada pedido en el mapa (`showToDriver`, ver orderPopupContent).
+let formConfig = { customFields: [] };
+socket.on('form-config:snapshot', (cfg) => { formConfig = cfg || { customFields: [] }; });
 
 function isCashPayment(paymentMethod) {
   const p = (paymentMethod || '').toLowerCase();

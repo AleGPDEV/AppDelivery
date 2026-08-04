@@ -43,8 +43,14 @@ function timeAgo(ts) {
   return `hace ${Math.round(seconds / 60)} min`;
 }
 
+// Color fijo: el InfoWindow de Google Maps siempre tiene fondo blanco, pero
+// sin esto el texto hereda var(--text) de la página — invisible en modo oscuro.
+function popupWrap(html) {
+  return `<div style="color:#1c1e21; font-size:0.9rem; line-height:1.5;">${html}</div>`;
+}
+
 function driverPopup(d) {
-  return `<strong>${d.name}</strong><br>${timeAgo(d.updatedAt)}`;
+  return popupWrap(`<strong>${d.name}</strong><br>${timeAgo(d.updatedAt)}`);
 }
 
 function orderPopup(drivers, o) {
@@ -52,7 +58,7 @@ function orderPopup(drivers, o) {
     ? `Asignado a ${drivers.get(o.assignedTo).name}`
     : 'Sin asignar';
   const who = o.name ? `${o.name}${o.phone ? ` (${o.phone})` : ''}<br>` : '';
-  return `<strong>Pedido #${o.orderNumber || '?'}</strong><br>${who}${o.label}<br>${assignedText}`;
+  return popupWrap(`<strong>Pedido #${o.orderNumber || '?'}</strong><br>${who}${o.label}<br>${assignedText}`);
 }
 
 function orderColor(drivers, o) {

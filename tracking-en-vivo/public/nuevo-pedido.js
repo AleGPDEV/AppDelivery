@@ -230,18 +230,29 @@ function renderFieldConfig() {
     requiredCheck.disabled = !visibleCheck.checked;
     requiredLabel.append(requiredCheck, 'Obligatorio');
 
+    const driverLabel2 = document.createElement('label');
+    driverLabel2.style.display = 'flex';
+    driverLabel2.style.alignItems = 'center';
+    driverLabel2.style.gap = '4px';
+    driverLabel2.style.fontSize = '0.85rem';
+    const driverCheck = document.createElement('input');
+    driverCheck.type = 'checkbox';
+    driverCheck.checked = f.showToDriver !== false;
+    driverLabel2.append(driverCheck, 'Mostrar al delivery');
+
     function emitUpdate() {
       requiredCheck.disabled = !visibleCheck.checked;
       formConfig = {
         ...formConfig,
         customFields: customFields().map((x) => (x.key === f.key
-          ? { ...x, visible: visibleCheck.checked, required: visibleCheck.checked && requiredCheck.checked }
+          ? { ...x, visible: visibleCheck.checked, required: visibleCheck.checked && requiredCheck.checked, showToDriver: driverCheck.checked }
           : x)),
       };
       socket.emit('form-config:update', formConfig);
     }
     visibleCheck.addEventListener('change', emitUpdate);
     requiredCheck.addEventListener('change', emitUpdate);
+    driverCheck.addEventListener('change', emitUpdate);
 
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
@@ -252,7 +263,7 @@ function renderFieldConfig() {
       socket.emit('form-config:update', formConfig);
     });
 
-    row.append(label, visibleLabel, requiredLabel, delBtn);
+    row.append(label, visibleLabel, requiredLabel, driverLabel2, delBtn);
     fieldConfigListEl.appendChild(row);
   });
 
@@ -272,7 +283,7 @@ function renderFieldConfig() {
     const label = newFieldInput.value.trim();
     if (!label) return;
     const key = `custom_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-    formConfig = { ...formConfig, customFields: [...customFields(), { key, label, visible: true, required: false }] };
+    formConfig = { ...formConfig, customFields: [...customFields(), { key, label, visible: true, required: false, showToDriver: true }] };
     socket.emit('form-config:update', formConfig);
     newFieldInput.value = '';
   });
