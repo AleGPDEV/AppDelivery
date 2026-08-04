@@ -8,10 +8,11 @@
   --border: #e2e5e9;
   --danger: #dc2626;
   --ok: #16a34a;
+  --shadow: 0 1px 2px rgba(20, 22, 26, 0.04), 0 4px 12px rgba(20, 22, 26, 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #14161a;
     --panel: #1e2126;
     --text: #f0f1f3;
@@ -21,7 +22,22 @@
     --border: #2c2f36;
     --danger: #f87171;
     --ok: #4ade80;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.32);
   }
+}
+
+/* Elección manual del toggle (theme.js) — pisa la preferencia del sistema. */
+:root[data-theme="dark"] {
+  --bg: #14161a;
+  --panel: #1e2126;
+  --text: #f0f1f3;
+  --muted: #9aa1ac;
+  --primary: #3b82f6;
+  --primary-dark: #60a5fa;
+  --border: #2c2f36;
+  --danger: #f87171;
+  --ok: #4ade80;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.32);
 }
 
 * { box-sizing: border-box; }
@@ -31,10 +47,12 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 header {
-  padding: 24px 20px 8px;
+  position: relative;
+  padding: 24px 56px 8px 20px;
   max-width: 720px;
   margin: 0 auto;
 }
@@ -48,6 +66,11 @@ h1 {
   color: var(--muted);
   margin: 0;
   font-size: 0.95rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 0 0 14px;
 }
 
 main {
@@ -69,10 +92,13 @@ main.wide {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
+  box-shadow: var(--shadow);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .tabs {
   display: flex;
+  align-items: center;
   gap: 4px;
   overflow-x: auto;
   border-bottom: 1px solid var(--border);
@@ -89,6 +115,27 @@ main.wide {
   white-space: nowrap;
   text-decoration: none;
   display: inline-block;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.tab-btn:hover:not(.active) {
+  color: var(--text);
+  background: var(--panel);
+}
+
+#theme-toggle-btn {
+  margin-left: auto;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+header > #theme-toggle-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  margin-left: 0;
 }
 
 #logout-btn {
@@ -116,6 +163,7 @@ label {
 }
 
 input[type="text"],
+input[type="password"],
 textarea,
 select {
   width: 100%;
@@ -126,6 +174,16 @@ select {
   color: var(--text);
   font-size: 1rem;
   font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--primary);
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
 textarea {
@@ -154,6 +212,11 @@ button {
   padding: 14px 20px;
   width: 100%;
   font-weight: 600;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+}
+
+button:active {
+  transform: scale(0.98);
 }
 
 .primary {
@@ -172,6 +235,16 @@ button {
   background: none;
   border: 1px solid var(--danger);
   color: var(--danger);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: white;
+}
+
+.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 button.small {
@@ -293,6 +366,18 @@ button.small {
   padding: 4px 8px;
 }
 
+.order-table tbody tr {
+  transition: background-color 0.1s ease;
+}
+
+.order-table tbody tr:hover {
+  background: var(--bg);
+}
+
+.swatch {
+  box-shadow: 0 0 0 1px var(--border);
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -302,6 +387,7 @@ button.small {
   justify-content: center;
   z-index: 1000;
   padding: 20px;
+  animation: fade-in 0.15s ease;
 }
 
 .modal-box {
@@ -314,6 +400,16 @@ button.small {
   max-width: 520px;
   max-height: 85vh;
   overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  animation: modal-in 0.18s ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
 }
 
 .modal-box section + section {
@@ -329,9 +425,16 @@ button.small {
   width: auto;
   background: none;
   border: none;
+  border-radius: 6px;
   color: var(--muted);
   font-size: 1.5rem;
   line-height: 1;
   padding: 4px 8px;
   cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.modal-close:hover {
+  color: var(--text);
+  background: var(--bg);
 }
