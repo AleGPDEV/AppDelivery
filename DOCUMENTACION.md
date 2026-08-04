@@ -110,7 +110,11 @@ Ambos usan `Geo.computeRoute(inicio, pedidos)` y emiten `driver:route` con el re
 - `tracking.driverId` — UUID generado una vez, para que recargar la página no cree "otro" delivery.
 - `tracking.driverName` — se recuerda el nombre.
 - `tracking.sharing` — flag que dice "estaba compartiendo". Si la pestaña se cierra sin querer (no se tocó "Dejar de compartir"), al reabrir la página **retoma solo**, sin tocar nada. Cerrar la pestaña **no** avisa al servidor (no hay `beforeunload`); el delivery solo se borra si pasan 5 min sin actualizar o si se toca el botón manualmente.
-- `tracking.cashStart` — el efectivo inicial que carga en la sección "Rendición del recorrido".
+
+(El efectivo inicial de "Rendición del recorrido" ya **no** es localStorage — lo carga el admin y se sincroniza por socket, ver más abajo.)
+
+### Mapa propio en driver.html
+Antes había que salir a Google Maps para ver dónde quedaban los próximos pedidos; ahora `driver.js` dibuja su propio mapa embebido (`#map-section`, oculto hasta la primera posición) con **solo lo suyo** — no todos los deliverys como en `dashboard.js`. Es una copia chica y autocontenida de la lógica de `dashboard.js` (mismo `loadGoogleMaps()`/`svgIcon()`, misma API key, duplicados a propósito — ver el resto de este documento sobre por qué cada página repite en vez de compartir): marcador propio (🛵, se actualiza en cada `sendPosition`), un marcador 📦 por pedido asignado sin entregar (con InfoWindow al tocarlo), y la polilínea de la ruta (`driver:route`). El link **"Abrir ruta en Google Maps (navegación)"** se mantiene aparte — el mapa embebido es para tener una vista general sin salir de la página, pero para navegación turn-by-turn real conviene la app de Maps.
 
 ### Rendición del recorrido (driver.js + caja.js)
 

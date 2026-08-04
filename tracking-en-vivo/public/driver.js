@@ -1,6 +1,7 @@
 const nameInput = document.getElementById('driver-name');
 const toggleBtn = document.getElementById('toggle-btn');
 const statusEl = document.getElementById('status');
+const mapSectionEl = document.getElementById('map-section');
 const ordersSectionEl = document.getElementById('orders-section');
 const ordersListEl = document.getElementById('orders-list');
 const routeSummaryEl = document.getElementById('route-summary');
@@ -8,6 +9,112 @@ const mapsLinkEl = document.getElementById('maps-link');
 const cashStartInput = document.getElementById('cash-start-input');
 const cashDeliveredSummaryEl = document.getElementById('cash-delivered-summary');
 const cashTotalEl = document.getElementById('cash-total');
+
+// Same key as geo.js/dashboard.js — protected by HTTP referrer + API
+// restriction in Google Cloud Console, not by secrecy.
+const GOOGLE_MAPS_API_KEY = 'AIzaSyDFkwn0iYF1X3S6Zu3B0XhdI1PrRj2zAvQ';
+
+let googleMapsLoadPromise = null;
+function loadGoogleMaps() {
+  if (googleMapsLoadPromise) return googleMapsLoadPromise;
+  googleMapsLoadPromise = new Promise((resolve, reject) => {
+    if (window.google && window.google.maps) { resolve(window.google.maps); return; }
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}`;
+    script.onload = () => resolve(window.google.maps);
+    script.onerror = () => reject(new Error('No se pudo cargar Google Maps.'));
+    document.head.appendChild(script);
+  });
+  return googleMapsLoadPromise;
+}
+
+function svgIcon(maps, color, emoji, size, shape) {
+  const half = size / 2;
+  const shapeSvg = shape === 'circle'
+    ? `<circle cx="${half}" cy="${half}" r="${half - 2}" fill="${color}" stroke="white" stroke-width="2"/>`
+    : `<rect x="2" y="2" width="${size - 4}" height="${size - 4}" rx="6" fill="${color}" stroke="white" stroke-width="2"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">${shapeSvg}<text x="${half}" y="${half + 5}" font-size="${Math.round(size * 0.5)}" text-anchor="middle">${emoji}</text></svg>`;
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new maps.Size(size, size),
+    anchor: new maps.Point(half, half),
+  };
+}
+
+// Mapa embebido con SOLO el recorrido de este delivery (a diferencia de
+// dashboard.js, que muestra a todos) — así no hace falta salir a Google Maps
+// solo para ver dónde están los próximos pedidos.
+let mapApi = null;
+async function getMap() {
+  if (mapApi) return mapApi;
+  const maps = await loadGoogleMaps();
+  const map = new maps.Map(document.getElementById('map'), {
+    center: { lat: -34.9011, lng: -56.1645 },
+    zoom: 13,
+    mapTypeControl: false,
+    streetViewControl: false,
+  });
+  mapApi = { maps, map, driverMarker: null, orderMarkers: new Map(), routeLine: null };
+  return mapApi;
+}
+
+function fitMapBounds(api) {
+  const points = [];
+  if (api.driverMarker) points.push(api.driverMarker.getPosition());
+  api.orderMarkers.forEach((m) => points.push(m.getPosition()));
+  if (points.length === 0) return;
+  const bounds = new api.maps.LatLngBounds();
+  points.forEach((p) => bounds.extend(p));
+  api.map.fitBounds(bounds, 40);
+  api.maps.event.addListenerOnce(api.map, 'bounds_changed', () => {
+    if (api.map.getZoom() > 16) api.map.setZoom(16);
+  });
+}
+
+async function updateDriverMarkerOnMap(lat, lng) {
+  const api = await getMap();
+  mapSectionEl.hidden = false;
+  const position = { lat, lng };
+  if (api.driverMarker) {
+    api.driverMarker.setPosition(position);
+  } else {
+    api.driverMarker = new api.maps.Marker({ position, map: api.map, icon: svgIcon(api.maps, '#2563eb', '🛵', 42, 'circle'), zIndex: 10 });
+    fitMapBounds(api);
+  }
+}
+
+async function updateOrderMarkersOnMap(mine) {
+  const api = await getMap();
+  const mineIds = new Set(mine.map(([id]) => id));
+  let changed = false;
+  api.orderMarkers.forEach((marker, id) => {
+    if (!mineIds.has(id)) { marker.setMap(null); api.orderMarkers.delete(id); changed = true; }
+  });
+  mine.forEach(([id, o]) => {
+    if (o.lat == null || o.lng == null) return;
+    const position = { lat: o.lat, lng: o.lng };
+    const existing = api.orderMarkers.get(id);
+    if (existing) {
+      existing.setPosition(position);
+    } else {
+      const marker = new api.maps.Marker({ position, map: api.map, icon: svgIcon(api.maps, '#dc2626', '📦', 36, 'square') });
+      const who = o.name ? `${o.name}${o.phone ? ` (${o.phone})` : ''}<br>` : '';
+      const infoWindow = new api.maps.InfoWindow({ content: `<strong>Pedido #${o.orderNumber || '?'}</strong><br>${who}${o.label}` });
+      marker.addListener('click', () => infoWindow.open({ anchor: marker, map: api.map }));
+      api.orderMarkers.set(id, marker);
+      changed = true;
+    }
+  });
+  if (changed) fitMapBounds(api);
+}
+
+async function updateRouteLineOnMap(latlngs) {
+  const api = await getMap();
+  if (api.routeLine) { api.routeLine.setMap(null); api.routeLine = null; }
+  if (!latlngs || latlngs.length < 2) return;
+  const path = latlngs.map(([lat, lng]) => ({ lat, lng }));
+  api.routeLine = new api.maps.Polyline({ path, strokeColor: '#2563eb', strokeWeight: 4, strokeOpacity: 0.8, map: api.map });
+}
 
 const DRIVER_ID_KEY = 'tracking.driverId';
 const DRIVER_NAME_KEY = 'tracking.driverName';
@@ -83,6 +190,8 @@ function renderOrders() {
     return posA - posB;
   });
 
+  updateOrderMarkersOnMap(mine);
+
   ordersSectionEl.hidden = mine.length === 0;
   if (mine.length === 0) return;
 
@@ -133,6 +242,7 @@ socket.on('driver:route', (r) => { if (r.driverId === driverId) renderRoute(r); 
 function renderRoute(r) {
   myRouteOrder = (r.stops || []).map((s) => s.id);
   renderOrders();
+  updateRouteLineOnMap(r.latlngs);
 
   if (!r.stops || r.stops.length === 0) {
     mapsLinkEl.hidden = true;
@@ -190,6 +300,7 @@ function sendPosition(pos) {
     lat: pos.coords.latitude,
     lng: pos.coords.longitude,
   });
+  updateDriverMarkerOnMap(pos.coords.latitude, pos.coords.longitude);
   const time = new Date().toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   setStatus(`Compartiendo ubicación — última actualización ${time}`, 'ok');
 }
@@ -231,6 +342,7 @@ function stopSharing() {
   }
   localStorage.removeItem(SHARING_KEY);
   socket.emit('driver:stop', { id: driverId });
+  mapSectionEl.hidden = true;
   toggleBtn.textContent = 'Empezar a compartir ubicación';
   toggleBtn.classList.remove('danger');
   toggleBtn.classList.add('primary');
