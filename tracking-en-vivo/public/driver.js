@@ -12,7 +12,6 @@ const cashTotalEl = document.getElementById('cash-total');
 const DRIVER_ID_KEY = 'tracking.driverId';
 const DRIVER_NAME_KEY = 'tracking.driverName';
 const SHARING_KEY = 'tracking.sharing';
-const CASH_START_KEY = 'tracking.cashStart';
 
 function getDriverId() {
   let id = localStorage.getItem(DRIVER_ID_KEY);
@@ -25,7 +24,6 @@ function getDriverId() {
 
 const driverId = getDriverId();
 nameInput.value = localStorage.getItem(DRIVER_NAME_KEY) || '';
-cashStartInput.value = localStorage.getItem(CASH_START_KEY) || '';
 
 const socket = io();
 let watchId = null;
@@ -34,29 +32,38 @@ let watchId = null;
 const myOrders = new Map();
 // Order ids in the optimal visiting sequence, from the last computed route.
 let myRouteOrder = [];
+let myCashStart = 0; // lo carga el admin desde caja.html — acá es de solo lectura
 
 function isCashPayment(paymentMethod) {
   const p = (paymentMethod || '').toLowerCase();
   return p === '' || p.includes('efectivo') || p === 'retira';
 }
 
-// El efectivo con el que arrancó el recorrido, editable acá — se suma solo
-// lo que va entregando en efectivo hasta ahora (no se resetea hasta que el
-// admin "Finalice el día" desde Analíticas, momento en que esos pedidos se
-// archivan y dejan de contar).
+// Se suma solo lo que va entregando en efectivo hasta ahora, sobre el
+// efectivo inicial que cargó el admin. No se resetea hasta que el admin
+// "Finalice el día" desde Analíticas, momento en que esos pedidos se
+// archivan y dejan de contar.
 function renderCashSummary() {
-  localStorage.setItem(CASH_START_KEY, cashStartInput.value);
   const delivered = Array.from(myOrders.values()).filter((o) => o.assignedTo === driverId && o.status === 'entregado' && !o.archivedAt);
   const cashDelivered = delivered.filter((o) => isCashPayment(o.paymentMethod));
   const cashTotal = cashDelivered.reduce((sum, o) => sum + (o.amount || 0), 0);
-  const cashStart = Geo.parseAmount(cashStartInput.value) || 0;
-  const mustHandIn = cashStart + cashTotal;
+  const mustHandIn = myCashStart + cashTotal;
 
   cashDeliveredSummaryEl.textContent = `${cashDelivered.length} pedido${cashDelivered.length === 1 ? '' : 's'} — $${cashTotal.toFixed(2)}`;
   cashTotalEl.innerHTML = `<strong>$${mustHandIn.toFixed(2)}</strong>`;
 }
 
-cashStartInput.addEventListener('input', renderCashSummary);
+socket.on('cash-starts:snapshot', (list) => {
+  const mine = list.find((c) => c.driverId === driverId);
+  if (mine) { myCashStart = mine.amount; cashStartInput.value = mine.amount ? mine.amount.toFixed(2) : ''; }
+  renderCashSummary();
+});
+socket.on('driver:cash-start', ({ driverId: id, amount }) => {
+  if (id !== driverId) return;
+  myCashStart = amount;
+  cashStartInput.value = amount ? amount.toFixed(2) : '';
+  renderCashSummary();
+});
 
 function setStatus(text, kind) {
   statusEl.textContent = text;

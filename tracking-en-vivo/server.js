@@ -98,6 +98,12 @@ const drivers = new Map();
 const orders = new Map();
 // driverId -> { stops: [{id,lat,lng,label,orderNumber}], latlngs: [[lat,lng],...], distanceKm, durationMin, updatedAt }
 const routes = new Map();
+// driverId -> number — el efectivo con el que salió ese delivery, lo carga el
+// admin desde caja.html y driver.html solo lo muestra (de solo lectura ahí).
+// En memoria nomás, como drivers/routes: es un dato por recorrido, no un
+// registro histórico (el "Debe entregar" ya queda fijo en business_days al
+// cerrar el día).
+const driverCashStarts = new Map();
 
 let formConfig = {
   phone: { visible: true, required: true },
@@ -134,6 +140,10 @@ function orderList() {
 
 function routeList() {
   return Array.from(routes.entries()).map(([driverId, r]) => ({ driverId, ...r, color: colorForDriver(driverId) }));
+}
+
+function cashStartList() {
+  return Array.from(driverCashStarts.entries()).map(([driverId, amount]) => ({ driverId, amount }));
 }
 
 function orderRow(id, o) {
@@ -342,6 +352,33 @@ app.get('/api/business-day/:id/orders', requireAuth, async (req, res) => {
   res.json({ orders: data || [] });
 });
 
+// Borra todos los pedidos ACTIVOS (sin archivar) y cancela un día abierto sin
+// pasar por "Finalizar día" (no pide efectivo, no queda nada en el
+// historial) — pensado para poder probar la app sin que quede mezclado con
+// datos reales. No toca los días ya cerrados ni los pedidos ya archivados,
+// eso es historial real y este botón no lo toca.
+app.post('/api/admin/reset-today', requireAuth, async (req, res) => {
+  const activeIds = Array.from(orders.entries()).filter(([, o]) => !o.archivedAt).map(([id]) => id);
+  activeIds.forEach((id) => orders.delete(id));
+  if (activeIds.length > 0) {
+    const { error } = await supabase.from('orders').delete().in('id', activeIds);
+    if (error) console.error('Error borrando pedidos activos en Supabase:', error.message);
+    activeIds.forEach((id) => io.emit('order:remove', { id }));
+  }
+
+  if (openBusinessDay) {
+    const { error } = await supabase.from('business_days').delete().eq('id', openBusinessDay.id);
+    if (error) console.error('Error cancelando el día abierto en Supabase:', error.message);
+    openBusinessDay = null;
+    io.emit('business-day:status', { day: null });
+  }
+
+  driverCashStarts.forEach((amount, driverId) => io.emit('driver:cash-start', { driverId, amount: 0 }));
+  driverCashStarts.clear();
+
+  res.json({ ok: true, deletedOrders: activeIds.length });
+});
+
 io.use((socket, next) => {
   const cookies = cookie.parse(socket.handshake.headers.cookie || '');
   socket.data.isAdmin = AUTH_DISABLED || !!verifyToken(cookies[COOKIE_NAME]);
@@ -354,6 +391,7 @@ io.on('connection', (socket) => {
   socket.emit('routes:snapshot', routeList());
   socket.emit('form-config:snapshot', formConfig);
   socket.emit('business-day:status', { day: openBusinessDay });
+  socket.emit('cash-starts:snapshot', cashStartList());
 
   socket.on('driver:update', ({ id, name, lat, lng }) => {
     if (!id || typeof lat !== 'number' || typeof lng !== 'number') return;
@@ -479,6 +517,15 @@ io.on('connection', (socket) => {
       if (error) console.error('Error guardando la configuración de campos en Supabase:', error.message);
     });
     io.emit('form-config:snapshot', formConfig);
+  });
+
+  // El admin carga cuánto efectivo le dio a un delivery al salir (caja.html);
+  // driver.html solo lo muestra, no puede editarlo — evita que el número que
+  // hay que rendir al final dependa de lo que el delivery diga que le dieron.
+  socket.on('driver:cash-start', ({ driverId, amount }) => {
+    if (!socket.data.isAdmin || !driverId || typeof amount !== 'number') return;
+    driverCashStarts.set(driverId, amount);
+    io.emit('driver:cash-start', { driverId, amount });
   });
 });
 

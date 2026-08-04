@@ -8,6 +8,8 @@ const cashEndEl = document.getElementById('cash-end');
 const dailyChartEl = document.getElementById('daily-chart');
 const dailyTbodyEl = document.getElementById('daily-tbody');
 const monthlyTbodyEl = document.getElementById('monthly-tbody');
+const resetTodayBtn = document.getElementById('reset-today-btn');
+const resetStatusEl = document.getElementById('reset-status');
 
 const socket = io();
 const orders = new Map(); // orderId -> order data, solo para saber cuántos pedidos activos hay al finalizar el día
@@ -291,6 +293,26 @@ endDayBtn.addEventListener('click', async () => {
     dayStatusMsgEl.className = 'status error';
     endDayBtn.disabled = false;
   }
+});
+
+resetTodayBtn.addEventListener('click', async () => {
+  const active = Array.from(orders.values()).filter((o) => !o.archivedAt);
+  const msg = `¿Borrar los ${active.length} pedido${active.length === 1 ? '' : 's'} activo${active.length === 1 ? '' : 's'} (sin archivar)${currentDay ? ' y cancelar el día abierto' : ''}? No se puede deshacer. El historial de días ya cerrados no se toca.`;
+  if (!confirm(msg)) return;
+
+  resetTodayBtn.disabled = true;
+  resetStatusEl.textContent = '';
+  try {
+    const { deletedOrders } = await api('/api/admin/reset-today', { method: 'POST' });
+    resetStatusEl.textContent = `Se borraron ${deletedOrders} pedido${deletedOrders === 1 ? '' : 's'} activo${deletedOrders === 1 ? '' : 's'}.`;
+    resetStatusEl.className = 'status ok';
+    currentDay = null;
+    renderDayStatus();
+  } catch (e) {
+    resetStatusEl.textContent = e.message;
+    resetStatusEl.className = 'status error';
+  }
+  resetTodayBtn.disabled = false;
 });
 
 socket.on('orders:snapshot', (list) => list.forEach((o) => orders.set(o.id, o)));

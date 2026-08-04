@@ -69,6 +69,13 @@
         </table>
       </div>
     </section>
+
+    <section class="panel">
+      <h2>Zona de pruebas</h2>
+      <p class="hint">Borra todos los pedidos activos (sin archivar) y cancela un día abierto sin cerrarlo de verdad — para poder probar la app sin dejar datos de prueba mezclados con los reales. No toca el historial de días ya cerrados.</p>
+      <button id="reset-today-btn" type="button" class="danger" style="width:auto;">Borrar pedidos activos</button>
+      <p id="reset-status" class="status"></p>
+    </section>
   </main>
 
   <script src="/socket.io/socket.io.js"></script>
