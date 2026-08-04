@@ -54,7 +54,12 @@ async function getMap() {
     mapTypeControl: false,
     streetViewControl: false,
   });
-  mapApi = { maps, map, driverMarker: null, orderMarkers: new Map(), routeLine: null };
+  const infoWindow = new maps.InfoWindow();
+  // Tocar el mapa (no un marcador) cierra el popup solo — un click en un
+  // marcador es un evento aparte que no llega hasta acá, así que no hace
+  // falta distinguirlos.
+  map.addListener('click', () => infoWindow.close());
+  mapApi = { maps, map, infoWindow, driverMarker: null, orderMarkers: new Map(), routeLine: null };
   return mapApi;
 }
 
@@ -97,7 +102,17 @@ function whatsappLink(phone) {
 // Teléfono y "cómo llegar" siempre se muestran (no es opcional); los campos
 // personalizados sí, según `formConfig.customFields[].showToDriver` (lo elige
 // el admin desde "Personalizar campos del formulario" en nuevo-pedido.html).
-function orderPopupContent(o) {
+// Devuelve un elemento DOM (no un string) para poder colgarle el botón
+// "Entregado" con su propio listener — un InfoWindow de Google Maps acepta
+// cualquiera de los dos como contenido.
+function buildOrderPopup(api, o) {
+  // Color fijo: el InfoWindow de Google Maps siempre tiene fondo blanco, pero
+  // sin esto el texto hereda var(--text) de la página — invisible en modo oscuro.
+  const container = document.createElement('div');
+  container.style.color = '#1c1e21';
+  container.style.fontSize = '0.9rem';
+  container.style.lineHeight = '1.5';
+
   const lines = [`<strong>Pedido #${o.orderNumber || '?'}</strong>`];
   if (o.name) lines.push(o.name);
   if (o.phone) {
@@ -114,9 +129,42 @@ function orderPopupContent(o) {
     const value = o.custom && o.custom[f.key];
     if (value) lines.push(`${f.label}: ${value}`);
   });
-  // Color fijo: el InfoWindow de Google Maps siempre tiene fondo blanco, pero
-  // sin esto el texto hereda var(--text) de la página — invisible en modo oscuro.
-  return `<div style="color:#1c1e21; font-size:0.9rem; line-height:1.5;">${lines.join('<br>')}</div>`;
+  const info = document.createElement('div');
+  info.innerHTML = lines.join('<br>');
+  container.appendChild(info);
+
+  // "Entregado" arranca oculto el segundo paso (los 3 medios de pago) — se
+  // muestra recién al tocarlo, mismo flujo que la lista de abajo del mapa.
+  const paymentRow = document.createElement('div');
+  paymentRow.style.display = 'none';
+  paymentRow.style.gap = '4px';
+  paymentRow.style.marginTop = '6px';
+  paymentRow.style.flexWrap = 'wrap';
+  ['Efectivo', 'Transferencia', 'Débito'].forEach((method) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'danger small';
+    btn.textContent = method;
+    btn.addEventListener('click', () => {
+      socket.emit('order:delivered', { id: o.id, paymentMethod: method });
+      recomputeMyRoute();
+      api.infoWindow.close();
+    });
+    paymentRow.appendChild(btn);
+  });
+
+  const deliveredBtn = document.createElement('button');
+  deliveredBtn.type = 'button';
+  deliveredBtn.className = 'danger small';
+  deliveredBtn.textContent = 'Entregado';
+  deliveredBtn.style.marginTop = '8px';
+  deliveredBtn.addEventListener('click', () => {
+    deliveredBtn.style.display = 'none';
+    paymentRow.style.display = 'flex';
+  });
+
+  container.append(deliveredBtn, paymentRow);
+  return container;
 }
 
 async function updateOrderMarkersOnMap(mine) {
@@ -134,10 +182,9 @@ async function updateOrderMarkersOnMap(mine) {
       existing.setPosition(position);
     } else {
       const marker = new api.maps.Marker({ position, map: api.map, icon: svgIcon(api.maps, '#dc2626', '📦', 36, 'square') });
-      const infoWindow = new api.maps.InfoWindow();
       marker.addListener('click', () => {
-        infoWindow.setContent(orderPopupContent(myOrders.get(id) || o));
-        infoWindow.open({ anchor: marker, map: api.map });
+        api.infoWindow.setContent(buildOrderPopup(api, myOrders.get(id) || o));
+        api.infoWindow.open({ anchor: marker, map: api.map });
       });
       api.orderMarkers.set(id, marker);
       changed = true;
@@ -179,7 +226,7 @@ const myOrders = new Map();
 let myRouteOrder = [];
 let myCashStart = 0; // lo carga el admin desde caja.html — acá es de solo lectura
 // Solo se usa acá para saber qué campos personalizados mostrar en el popup
-// de cada pedido en el mapa (`showToDriver`, ver orderPopupContent).
+// de cada pedido en el mapa (`showToDriver`, ver buildOrderPopup).
 let formConfig = { customFields: [] };
 socket.on('form-config:snapshot', (cfg) => { formConfig = cfg || { customFields: [] }; });
 
