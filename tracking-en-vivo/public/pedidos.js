@@ -1,6 +1,17 @@
 const orderTheadRowEl = document.getElementById('order-thead-row');
 const orderTbodyEl = document.getElementById('order-tbody');
 const orderCountEl = document.getElementById('order-count');
+const editOverlay = document.getElementById('edit-overlay');
+const editCloseBtn = document.getElementById('edit-close-btn');
+const editPhoneEl = document.getElementById('edit-phone');
+const editNameEl = document.getElementById('edit-name');
+const editOrderNumEl = document.getElementById('edit-ordernum');
+const editLocationEl = document.getElementById('edit-location');
+const editLocationCurrentEl = document.getElementById('edit-location-current');
+const editAmountEl = document.getElementById('edit-amount');
+const editCustomContainerEl = document.getElementById('edit-custom-fields-container');
+const editSaveBtn = document.getElementById('edit-save-btn');
+const editStatusEl = document.getElementById('edit-status');
 
 const STATUS_OPTIONS = [['pending', 'En preparación'], ['en_camino', 'En Camino'], ['entregado', 'Entregado']];
 const PAYMENT_OPTIONS = ['', 'Efectivo', 'Transferencia', 'Débito'];
@@ -34,6 +45,13 @@ function visibleFieldColumns() {
 
 function renderHeader() {
   orderTheadRowEl.innerHTML = '';
+  // "Ticket" (seq) va siempre primero y nunca se puede ocultar — es lo único
+  // que distingue con seguridad dos pedidos entre sí. "Nº de pedido" lo
+  // tipea el admin y se puede repetir a propósito (y ya se puede ocultar
+  // desde "Personalizar campos"), así que no sirve como identificador único.
+  const tick = document.createElement('th');
+  tick.textContent = 'Ticket';
+  orderTheadRowEl.appendChild(tick);
   visibleFieldColumns().forEach((c) => {
     const th = document.createElement('th');
     th.textContent = c.label;
@@ -76,12 +94,20 @@ function renderOrders() {
     ? 'Todavía no cargaste ningún pedido.'
     : `${active.length} pedido${active.length === 1 ? '' : 's'} registrado${active.length === 1 ? '' : 's'}.`;
 
-  const sorted = active.sort((a, b) => (a[1].orderNumber || '').localeCompare(b[1].orderNumber || '', undefined, { numeric: true }));
+  const sorted = active.sort((a, b) => {
+    const byNumber = (a[1].orderNumber || '').localeCompare(b[1].orderNumber || '', undefined, { numeric: true });
+    if (byNumber !== 0) return byNumber;
+    return (a[1].seq || 0) - (b[1].seq || 0); // desempate estable si el Nº de pedido se repite
+  });
 
   const fieldColumns = visibleFieldColumns();
 
   sorted.forEach(([id, o]) => {
     const tr = document.createElement('tr');
+
+    const tdTicket = document.createElement('td');
+    tdTicket.textContent = o.seq != null ? `#${o.seq}` : '';
+    tr.appendChild(tdTicket);
 
     fieldColumns.forEach((c) => {
       const td = document.createElement('td');
@@ -140,13 +166,26 @@ function renderOrders() {
     tdStatus.appendChild(statusSelect);
 
     const tdActions = document.createElement('td');
+    tdActions.style.display = 'flex';
+    tdActions.style.gap = '4px';
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'small';
+    editBtn.textContent = '✏️';
+    editBtn.title = 'Editar pedido';
+    editBtn.addEventListener('click', () => openEditModal(id, o));
+    tdActions.appendChild(editBtn);
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'danger small';
     delBtn.textContent = '🗑';
     delBtn.title = 'Eliminar pedido';
+    // Sin confirm() a propósito: limpiar varios pedidos cargados mal, uno por
+    // uno con una ventana de confirmación cada vez, era tedioso.
     delBtn.addEventListener('click', () => {
-      if (confirm(`¿Eliminar el pedido #${o.orderNumber || '?'}?`)) socket.emit('order:remove', { id });
+      socket.emit('order:remove', { id });
     });
     tdActions.appendChild(delBtn);
 
@@ -154,6 +193,83 @@ function renderOrders() {
     orderTbodyEl.appendChild(tr);
   });
 }
+
+// "Editar pedido": a diferencia de los dropdowns sueltos de la tabla (que
+// solo tocan estado/forma de pago), esto deja cambiar cualquier campo. El
+// cambio se manda por el mismo order:edit de siempre — el delivery lo ve
+// actualizado al toque en su lista/mapa, no hace falta avisarle aparte.
+let editingOrderId = null;
+
+function openEditModal(id, o) {
+  editingOrderId = id;
+  editPhoneEl.value = o.phone || '';
+  editNameEl.value = o.name || '';
+  editOrderNumEl.value = o.orderNumber || '';
+  editLocationEl.value = '';
+  editLocationCurrentEl.textContent = o.label ? `Ubicación actual: ${o.label}` : 'Sin ubicación (retira en el local).';
+  editAmountEl.value = o.amount != null ? o.amount.toFixed(2) : '';
+  editStatusEl.textContent = '';
+  editStatusEl.className = 'status';
+
+  editCustomContainerEl.innerHTML = '';
+  (formConfig.customFields || []).forEach((f) => {
+    const div = document.createElement('div');
+    div.className = 'field';
+    const label = document.createElement('label');
+    label.textContent = f.label;
+    label.htmlFor = `edit-custom-${f.key}`;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = `edit-custom-${f.key}`;
+    input.value = (o.custom && o.custom[f.key]) || '';
+    div.append(label, input);
+    editCustomContainerEl.appendChild(div);
+  });
+
+  editOverlay.style.display = 'flex';
+}
+
+editCloseBtn.addEventListener('click', () => { editOverlay.style.display = 'none'; });
+editOverlay.addEventListener('click', (e) => { if (e.target === editOverlay) editOverlay.style.display = 'none'; });
+
+editSaveBtn.addEventListener('click', async () => {
+  if (!editingOrderId) return;
+  const fields = {
+    phone: editPhoneEl.value.trim(),
+    name: editNameEl.value.trim(),
+    orderNumber: editOrderNumEl.value.trim(),
+    amount: Geo.parseAmount(editAmountEl.value) || 0,
+  };
+  const custom = {};
+  (formConfig.customFields || []).forEach((f) => {
+    const input = document.getElementById(`edit-custom-${f.key}`);
+    if (input) custom[f.key] = input.value.trim();
+  });
+  if (Object.keys(custom).length > 0) fields.custom = custom;
+
+  const locationRaw = editLocationEl.value.trim();
+  if (locationRaw) {
+    editSaveBtn.disabled = true;
+    try {
+      const point = await Geo.resolveInput(locationRaw, 'este pedido', (msg) => {
+        editStatusEl.textContent = msg;
+        editStatusEl.className = 'status';
+      });
+      fields.lat = point.lat;
+      fields.lng = point.lng;
+      fields.label = point.label;
+    } catch (e) {
+      editStatusEl.textContent = e.message;
+      editStatusEl.className = 'status error';
+      editSaveBtn.disabled = false;
+      return;
+    }
+  }
+
+  socket.emit('order:edit', { id: editingOrderId, fields });
+  editSaveBtn.disabled = false;
+  editOverlay.style.display = 'none';
+});
 
 function assignOrder(orderId, driverId) {
   const order = orders.get(orderId);

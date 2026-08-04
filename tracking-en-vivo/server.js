@@ -94,8 +94,14 @@ app.post('/api/change-password', async (req, res) => {
 
 // driverId -> { name, lat, lng, updatedAt }
 const drivers = new Map();
-// orderId -> { orderNumber, phone, name, lat, lng, label, assignedTo, status, amount, paymentMethod, reconciledAt, updatedAt }
+// orderId -> { seq, orderNumber, phone, name, lat, lng, label, assignedTo, status, amount, paymentMethod, reconciledAt, updatedAt }
 const orders = new Map();
+// Número de ticket, único y creciente, asignado por el servidor — a
+// diferencia de "Nº de pedido" (lo tipea el admin, se puede repetir a
+// propósito), esto es lo único que diferencia dos pedidos con total
+// seguridad. Se calcula al arrancar como el mayor `seq` ya guardado + 1
+// (ver loadOrders) para no repetir números aunque el servidor se reinicie.
+let nextSeq = 1;
 // driverId -> { stops: [{id,lat,lng,label,orderNumber}], latlngs: [[lat,lng],...], distanceKm, durationMin, updatedAt }
 const routes = new Map();
 // driverId -> number — el efectivo con el que salió ese delivery, lo carga el
@@ -149,6 +155,7 @@ function cashStartList() {
 function orderRow(id, o) {
   return {
     id,
+    seq: o.seq,
     order_number: o.orderNumber || null,
     phone: o.phone || null,
     name: o.name || null,
@@ -206,7 +213,9 @@ async function loadOrders() {
   const { data, error } = await supabase.from('orders').select('*');
   if (error) { console.error('Error cargando pedidos de Supabase:', error.message); return; }
   data.forEach((row) => {
+    if (typeof row.seq === 'number' && row.seq >= nextSeq) nextSeq = row.seq + 1;
     orders.set(row.id, {
+      seq: row.seq,
       orderNumber: row.order_number,
       phone: row.phone,
       name: row.name,
@@ -415,6 +424,7 @@ io.on('connection', (socket) => {
     if (!socket.data.isAdmin || !id || !openBusinessDay) return;
     const hasLocation = typeof lat === 'number' && typeof lng === 'number';
     const entry = {
+      seq: nextSeq++,
       orderNumber: (orderNumber || '').toString().slice(0, 20),
       phone: (phone || '').toString().slice(0, 30),
       name: (name || '').toString().slice(0, 60),
@@ -449,13 +459,24 @@ io.on('connection', (socket) => {
     io.emit('order:update', { id, ...o });
   });
 
-  // Admin editing a cell directly in the registry table (forma de pago o estado).
+  // El admin edita un pedido — desde un dropdown suelto en la tabla (solo
+  // status/paymentMethod) o desde el popup "Editar pedido" (cualquier
+  // campo). Cualquier cambio se propaga solo por el broadcast de
+  // order:update de siempre — el delivery lo ve al toque, no hace falta
+  // avisarle aparte.
   socket.on('order:edit', ({ id, fields }) => {
     if (!socket.data.isAdmin) return;
     const o = orders.get(id);
     if (!o || !fields) return;
     if (typeof fields.status === 'string') o.status = fields.status.slice(0, 20);
     if (typeof fields.paymentMethod === 'string') o.paymentMethod = fields.paymentMethod.slice(0, 30);
+    if (typeof fields.orderNumber === 'string') o.orderNumber = fields.orderNumber.slice(0, 20);
+    if (typeof fields.phone === 'string') o.phone = fields.phone.slice(0, 30);
+    if (typeof fields.name === 'string') o.name = fields.name.slice(0, 60);
+    if (typeof fields.amount === 'number') o.amount = fields.amount;
+    if (typeof fields.label === 'string') o.label = fields.label.slice(0, 200);
+    if (typeof fields.lat === 'number' && typeof fields.lng === 'number') { o.lat = fields.lat; o.lng = fields.lng; }
+    if (fields.custom && typeof fields.custom === 'object') o.custom = { ...o.custom, ...sanitizeCustom(fields.custom) };
     o.updatedAt = Date.now();
     persistOrder(id, o);
     io.emit('order:update', { id, ...o });
