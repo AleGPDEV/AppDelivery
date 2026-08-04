@@ -17,6 +17,13 @@ const pwBtnEl = document.getElementById('pw-btn');
 const pwStatusEl = document.getElementById('pw-status');
 const dayGateMsgEl = document.getElementById('day-gate-msg');
 const orderDupWarningEl = document.getElementById('order-dup-warning');
+const settingsBtn = document.getElementById('settings-btn');
+const settingsOverlay = document.getElementById('settings-overlay');
+const settingsCloseBtn = document.getElementById('settings-close-btn');
+
+settingsBtn.addEventListener('click', () => { settingsOverlay.style.display = 'flex'; });
+settingsCloseBtn.addEventListener('click', () => { settingsOverlay.style.display = 'none'; });
+settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) settingsOverlay.style.display = 'none'; });
 
 function genId() {
   return `o-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

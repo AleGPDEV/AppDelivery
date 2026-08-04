@@ -18,6 +18,7 @@
     <a href="dashboard.html" class="tab-btn">Deliverys y mapa</a>
     <a href="caja.html" class="tab-btn">Rendición de caja</a>
     <a href="analiticas.html" class="tab-btn">Analíticas</a>
+    <button id="settings-btn" class="tab-btn" type="button">⚙ Configuración</button>
     <button id="logout-btn" class="tab-btn" type="button">Cerrar sesión</button>
   </nav>
 
@@ -64,27 +65,33 @@
       <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
       <p id="load-status" class="status"></p>
     </section>
-
-    <section class="panel">
-      <h2>Personalizar campos del formulario</h2>
-      <p class="hint">Elegí qué campos mostrar y cuáles son obligatorios al cargar un pedido nuevo.</p>
-      <div id="field-config-list"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Cuenta</h2>
-      <div class="field">
-        <label for="pw-current">Contraseña actual</label>
-        <input type="password" id="pw-current" autocomplete="current-password">
-      </div>
-      <div class="field">
-        <label for="pw-new">Contraseña nueva (mínimo 8 caracteres)</label>
-        <input type="password" id="pw-new" autocomplete="new-password">
-      </div>
-      <button id="pw-btn" type="button" class="primary">Cambiar contraseña</button>
-      <p id="pw-status" class="status"></p>
-    </section>
   </main>
+
+  <div id="settings-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <button id="settings-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+
+      <section>
+        <h2>Personalizar campos del formulario</h2>
+        <p class="hint">Elegí qué campos mostrar y cuáles son obligatorios al cargar un pedido nuevo.</p>
+        <div id="field-config-list"></div>
+      </section>
+
+      <section>
+        <h2>Cuenta</h2>
+        <div class="field">
+          <label for="pw-current">Contraseña actual</label>
+          <input type="password" id="pw-current" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label for="pw-new">Contraseña nueva (mínimo 8 caracteres)</label>
+          <input type="password" id="pw-new" autocomplete="new-password">
+        </div>
+        <button id="pw-btn" type="button" class="primary">Cambiar contraseña</button>
+        <p id="pw-status" class="status"></p>
+      </section>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="geo.js?v=4"></script>
