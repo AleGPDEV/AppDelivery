@@ -11,10 +11,14 @@ const monthlyTbodyEl = document.getElementById('monthly-tbody');
 const resetTodayBtn = document.getElementById('reset-today-btn');
 const resetStatusEl = document.getElementById('reset-status');
 
+MoneyCounter.attach(cashStartEl);
+MoneyCounter.attach(cashEndEl);
+
 const socket = io();
 const orders = new Map(); // orderId -> order data, solo para saber cuántos pedidos activos hay al finalizar el día
 
 let currentDay = null;
+let allDays = []; // último historial recibido, solo para el conteo del botón "Borrar TODO"
 
 function fmtMoney(n) {
   return `$${(n || 0).toFixed(2)}`;
@@ -221,6 +225,7 @@ function renderMonthlyTable(days) {
 async function loadHistory() {
   try {
     const { days } = await api('/api/business-days');
+    allDays = days;
     renderDailyChart(days);
     renderDailyTable(days);
     renderMonthlyTable(days);
@@ -296,18 +301,19 @@ endDayBtn.addEventListener('click', async () => {
 });
 
 resetTodayBtn.addEventListener('click', async () => {
-  const active = Array.from(orders.values()).filter((o) => !o.archivedAt);
-  const msg = `¿Borrar los ${active.length} pedido${active.length === 1 ? '' : 's'} activo${active.length === 1 ? '' : 's'} (sin archivar)${currentDay ? ' y cancelar el día abierto' : ''}? No se puede deshacer. El historial de días ya cerrados no se toca.`;
+  const closedDaysCount = allDays.filter((d) => d.ended_at).length;
+  const msg = `¿BORRAR TODO? Esto incluye:\n- ${orders.size} pedido${orders.size === 1 ? '' : 's'} en total (activos y ya archivados)\n- ${closedDaysCount} día${closedDaysCount === 1 ? '' : 's'} cerrado${closedDaysCount === 1 ? '' : 's'} con su historial${currentDay ? '\n- el día que está abierto ahora' : ''}\n\nNO SE PUEDE DESHACER. Esto es historial real, no solo pedidos de hoy — usalo solo si estás probando la app.`;
   if (!confirm(msg)) return;
 
   resetTodayBtn.disabled = true;
   resetStatusEl.textContent = '';
   try {
     const { deletedOrders } = await api('/api/admin/reset-today', { method: 'POST' });
-    resetStatusEl.textContent = `Se borraron ${deletedOrders} pedido${deletedOrders === 1 ? '' : 's'} activo${deletedOrders === 1 ? '' : 's'}.`;
+    resetStatusEl.textContent = `Se borraron ${deletedOrders} pedido${deletedOrders === 1 ? '' : 's'} y todo el historial de días.`;
     resetStatusEl.className = 'status ok';
     currentDay = null;
     renderDayStatus();
+    loadHistory();
   } catch (e) {
     resetStatusEl.textContent = e.message;
     resetStatusEl.className = 'status error';

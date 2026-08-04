@@ -88,6 +88,9 @@ function ensureBox(driverId) {
 
   row.append(cambioInput, gastosInput, debeText, clearBtn);
   box.appendChild(row);
+  // Recién acá `cambioInput` ya tiene padre (`row`) — antes de este punto
+  // `insertAdjacentElement('afterend', ...)` no tiene dónde insertar nada.
+  MoneyCounter.attach(cambioInput);
 
   const refs = { box, titleEl, summaryEl, cambioInput, gastosInput, debeText };
   driverBoxes.set(driverId, refs);

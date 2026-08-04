@@ -352,31 +352,29 @@ app.get('/api/business-day/:id/orders', requireAuth, async (req, res) => {
   res.json({ orders: data || [] });
 });
 
-// Borra todos los pedidos ACTIVOS (sin archivar) y cancela un día abierto sin
-// pasar por "Finalizar día" (no pide efectivo, no queda nada en el
-// historial) — pensado para poder probar la app sin que quede mezclado con
-// datos reales. No toca los días ya cerrados ni los pedidos ya archivados,
-// eso es historial real y este botón no lo toca.
+// Borra ABSOLUTAMENTE TODOS los pedidos (activos y ya archivados) y TODOS
+// los business_days (abiertos y ya cerrados) — a pedido explícito, "esto es
+// preventivo para pruebas". A diferencia de antes, esto SÍ toca el
+// historial real: no hay forma de recuperar nada después de tocarlo. El
+// frontend (analiticas.js) avisa esto bien claro antes de llamar acá.
 app.post('/api/admin/reset-today', requireAuth, async (req, res) => {
-  const activeIds = Array.from(orders.entries()).filter(([, o]) => !o.archivedAt).map(([id]) => id);
-  activeIds.forEach((id) => orders.delete(id));
-  if (activeIds.length > 0) {
-    const { error } = await supabase.from('orders').delete().in('id', activeIds);
-    if (error) console.error('Error borrando pedidos activos en Supabase:', error.message);
-    activeIds.forEach((id) => io.emit('order:remove', { id }));
+  const allOrderIds = Array.from(orders.keys());
+  orders.clear();
+  if (allOrderIds.length > 0) {
+    const { error } = await supabase.from('orders').delete().not('id', 'is', null);
+    if (error) console.error('Error borrando pedidos en Supabase:', error.message);
+    allOrderIds.forEach((id) => io.emit('order:remove', { id }));
   }
 
-  if (openBusinessDay) {
-    const { error } = await supabase.from('business_days').delete().eq('id', openBusinessDay.id);
-    if (error) console.error('Error cancelando el día abierto en Supabase:', error.message);
-    openBusinessDay = null;
-    io.emit('business-day:status', { day: null });
-  }
+  const { error: daysError } = await supabase.from('business_days').delete().not('id', 'is', null);
+  if (daysError) console.error('Error borrando business_days en Supabase:', daysError.message);
+  openBusinessDay = null;
+  io.emit('business-day:status', { day: null });
 
   driverCashStarts.forEach((amount, driverId) => io.emit('driver:cash-start', { driverId, amount: 0 }));
   driverCashStarts.clear();
 
-  res.json({ ok: true, deletedOrders: activeIds.length });
+  res.json({ ok: true, deletedOrders: allOrderIds.length });
 });
 
 io.use((socket, next) => {
