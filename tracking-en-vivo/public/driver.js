@@ -5,10 +5,14 @@ const ordersSectionEl = document.getElementById('orders-section');
 const ordersListEl = document.getElementById('orders-list');
 const routeSummaryEl = document.getElementById('route-summary');
 const mapsLinkEl = document.getElementById('maps-link');
+const cashStartInput = document.getElementById('cash-start-input');
+const cashDeliveredSummaryEl = document.getElementById('cash-delivered-summary');
+const cashTotalEl = document.getElementById('cash-total');
 
 const DRIVER_ID_KEY = 'tracking.driverId';
 const DRIVER_NAME_KEY = 'tracking.driverName';
 const SHARING_KEY = 'tracking.sharing';
+const CASH_START_KEY = 'tracking.cashStart';
 
 function getDriverId() {
   let id = localStorage.getItem(DRIVER_ID_KEY);
@@ -21,6 +25,7 @@ function getDriverId() {
 
 const driverId = getDriverId();
 nameInput.value = localStorage.getItem(DRIVER_NAME_KEY) || '';
+cashStartInput.value = localStorage.getItem(CASH_START_KEY) || '';
 
 const socket = io();
 let watchId = null;
@@ -29,6 +34,29 @@ let watchId = null;
 const myOrders = new Map();
 // Order ids in the optimal visiting sequence, from the last computed route.
 let myRouteOrder = [];
+
+function isCashPayment(paymentMethod) {
+  const p = (paymentMethod || '').toLowerCase();
+  return p === '' || p.includes('efectivo') || p === 'retira';
+}
+
+// El efectivo con el que arrancó el recorrido, editable acá — se suma solo
+// lo que va entregando en efectivo hasta ahora (no se resetea hasta que el
+// admin "Finalice el día" desde Analíticas, momento en que esos pedidos se
+// archivan y dejan de contar).
+function renderCashSummary() {
+  localStorage.setItem(CASH_START_KEY, cashStartInput.value);
+  const delivered = Array.from(myOrders.values()).filter((o) => o.assignedTo === driverId && o.status === 'entregado' && !o.archivedAt);
+  const cashDelivered = delivered.filter((o) => isCashPayment(o.paymentMethod));
+  const cashTotal = cashDelivered.reduce((sum, o) => sum + (o.amount || 0), 0);
+  const cashStart = Geo.parseAmount(cashStartInput.value) || 0;
+  const mustHandIn = cashStart + cashTotal;
+
+  cashDeliveredSummaryEl.textContent = `${cashDelivered.length} pedido${cashDelivered.length === 1 ? '' : 's'} — $${cashTotal.toFixed(2)}`;
+  cashTotalEl.innerHTML = `<strong>$${mustHandIn.toFixed(2)}</strong>`;
+}
+
+cashStartInput.addEventListener('input', renderCashSummary);
 
 function setStatus(text, kind) {
   statusEl.textContent = text;
@@ -88,9 +116,9 @@ function renderOrders() {
   });
 }
 
-socket.on('orders:snapshot', (list) => { list.forEach((o) => myOrders.set(o.id, o)); renderOrders(); });
-socket.on('order:update', (o) => { myOrders.set(o.id, o); renderOrders(); });
-socket.on('order:remove', ({ id }) => { myOrders.delete(id); renderOrders(); });
+socket.on('orders:snapshot', (list) => { list.forEach((o) => myOrders.set(o.id, o)); renderOrders(); renderCashSummary(); });
+socket.on('order:update', (o) => { myOrders.set(o.id, o); renderOrders(); renderCashSummary(); });
+socket.on('order:remove', ({ id }) => { myOrders.delete(id); renderOrders(); renderCashSummary(); });
 
 socket.on('routes:snapshot', (list) => { const mine = list.find((r) => r.driverId === driverId); if (mine) renderRoute(mine); });
 socket.on('driver:route', (r) => { if (r.driverId === driverId) renderRoute(r); });
@@ -216,3 +244,5 @@ toggleBtn.addEventListener('click', () => {
 if (localStorage.getItem(SHARING_KEY) === '1' && localStorage.getItem(DRIVER_NAME_KEY)) {
   startSharing();
 }
+
+renderCashSummary();

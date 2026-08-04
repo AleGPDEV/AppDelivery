@@ -31,6 +31,27 @@
       <a id="maps-link" href="#" target="_blank" rel="noopener" class="primary maps-button" hidden>Abrir ruta en Google Maps</a>
       <ul id="orders-list" class="order-list"></ul>
     </section>
+
+    <section class="panel">
+      <h2>Rendición del recorrido</h2>
+      <p class="hint">Ponés con cuánto arrancaste y se va sumando solo lo que entregues en efectivo, para saber cuánto tenés que entregar al final.</p>
+      <table class="order-table" style="white-space: normal;">
+        <tbody>
+          <tr>
+            <td>Efectivo inicial</td>
+            <td><input type="text" id="cash-start-input" placeholder="$ 2.000,00"></td>
+          </tr>
+          <tr>
+            <td>Entregados en efectivo</td>
+            <td id="cash-delivered-summary">0 pedidos — $0.00</td>
+          </tr>
+          <tr>
+            <td><strong>Debe entregar</strong></td>
+            <td id="cash-total"><strong>$0.00</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
   </main>
 
   <script src="/socket.io/socket.io.js"></script>

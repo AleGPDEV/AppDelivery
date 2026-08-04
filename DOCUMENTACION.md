@@ -110,6 +110,14 @@ Ambos usan `Geo.computeRoute(inicio, pedidos)` y emiten `driver:route` con el re
 - `tracking.driverId` — UUID generado una vez, para que recargar la página no cree "otro" delivery.
 - `tracking.driverName` — se recuerda el nombre.
 - `tracking.sharing` — flag que dice "estaba compartiendo". Si la pestaña se cierra sin querer (no se tocó "Dejar de compartir"), al reabrir la página **retoma solo**, sin tocar nada. Cerrar la pestaña **no** avisa al servidor (no hay `beforeunload`); el delivery solo se borra si pasan 5 min sin actualizar o si se toca el botón manualmente.
+- `tracking.cashStart` — el efectivo inicial que carga en la sección "Rendición del recorrido".
+
+### Rendición del recorrido (driver.js)
+
+Igual que en `caja.js`, pero para uso del propio delivery en su celular, no del admin. Una tabla en `driver.html` con:
+- **Efectivo inicial** — input editable, guardado en `tracking.cashStart` (persiste al recargar). No se sincroniza con el servidor ni con `caja.html` — es solo para que el delivery lleve su propia cuenta.
+- **Entregados en efectivo** / **Debe entregar** — se recalculan solos (`renderCashSummary()`) cada vez que llega un `order:update`/`orders:snapshot`: filtra `myOrders` por `assignedTo === driverId && status === 'entregado' && !archivedAt`, separa los pagados en efectivo (`isCashPayment()`, mismo criterio que `caja.js`: vacío, contiene "efectivo", o "retira") y suma sus `amount`. `Debe entregar = efectivo inicial + efectivo cobrado`.
+- Se "resetea" solo: cuando el admin **finaliza el día** desde Analíticas, esos pedidos pasan a `archivedAt` y dejan de contar acá — el delivery solo tiene que poner de nuevo el efectivo inicial para el próximo recorrido.
 
 ### Íconos del mapa
 `svgIcon()` genera un pin como SVG inline (data URI): círculo con 🛵 para delivery, cuadrado redondeado con 📦 para pedido, coloreado según a qué delivery está asignado (gris si no tiene asignar).
