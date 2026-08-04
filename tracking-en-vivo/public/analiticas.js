@@ -89,10 +89,73 @@ function renderDailyChart(days) {
   dailyChartEl.appendChild(wrap);
 }
 
+const DAILY_COLSPAN = 6;
+const PAYMENT_LABEL = (p) => p || 'Sin especificar';
+
+function renderOrderDetailTable(orders) {
+  if (orders.length === 0) return document.createTextNode('Sin pedidos ese día.');
+  const table = document.createElement('table');
+  table.className = 'order-table';
+  table.style.marginTop = '8px';
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>Nº pedido</th><th>Teléfono</th><th>Nombre</th><th>Monto</th><th>Método de pago</th><th>Estado</th></tr>';
+  const tbody = document.createElement('tbody');
+  orders.forEach((o) => {
+    const tr = document.createElement('tr');
+    const cells = [
+      o.order_number || '',
+      o.phone || '',
+      o.name || '',
+      o.amount != null ? fmtMoney(o.amount) : '',
+      PAYMENT_LABEL(o.payment_method),
+      o.status || '',
+    ];
+    cells.forEach((text) => {
+      const td = document.createElement('td');
+      td.textContent = text;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.append(thead, tbody);
+  return table;
+}
+
+async function toggleDayDetail(day, row) {
+  const existing = row.nextElementSibling;
+  if (existing && existing.dataset.detailFor === day.id) {
+    existing.remove();
+    return;
+  }
+  // Solo una fila expandida a la vez, para no llenar la tabla de sub-tablas.
+  dailyTbodyEl.querySelectorAll('tr[data-detail-for]').forEach((tr) => tr.remove());
+
+  const detailRow = document.createElement('tr');
+  detailRow.dataset.detailFor = day.id;
+  const td = document.createElement('td');
+  td.colSpan = DAILY_COLSPAN;
+  td.textContent = 'Cargando...';
+  td.className = 'hint';
+  detailRow.appendChild(td);
+  row.after(detailRow);
+
+  try {
+    const { orders: dayOrders } = await api(`/api/business-day/${day.id}/orders`);
+    td.textContent = '';
+    td.className = '';
+    td.appendChild(renderOrderDetailTable(dayOrders));
+  } catch (e) {
+    td.textContent = e.message;
+    td.className = 'hint';
+  }
+}
+
 function renderDailyTable(days) {
   dailyTbodyEl.innerHTML = '';
   days.filter((d) => d.ended_at).forEach((d) => {
     const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.title = 'Ver los pedidos de este día';
     const tdDate = document.createElement('td'); tdDate.textContent = fmtDate(d.date);
     const tdOrders = document.createElement('td'); tdOrders.textContent = d.total_orders || 0;
     const tdRevenue = document.createElement('td'); tdRevenue.textContent = fmtMoney(d.total_revenue);
@@ -107,12 +170,13 @@ function renderDailyTable(days) {
       tdDiff.textContent = '—';
     }
     tr.append(tdDate, tdOrders, tdRevenue, tdCashExpected, tdCashEnd, tdDiff);
+    tr.addEventListener('click', () => toggleDayDetail(d, tr));
     dailyTbodyEl.appendChild(tr);
   });
   if (dailyTbodyEl.children.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 6;
+    td.colSpan = DAILY_COLSPAN;
     td.className = 'hint';
     td.textContent = 'Todavía no cerraste ningún día.';
     tr.appendChild(td);

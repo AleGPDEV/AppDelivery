@@ -329,6 +329,19 @@ app.get('/api/business-days', requireAuth, async (req, res) => {
   res.json({ days: data || [] });
 });
 
+// Detalle de un día ya cerrado: los pedidos que se archivaron en ese mismo
+// "Finalizar día" comparten exactamente el mismo `archived_at` que el
+// `ended_at` de ese business_day (mismo `now` en el momento de cerrar, ver
+// /api/business-day/end) — no hace falta guardar una relación aparte.
+app.get('/api/business-day/:id/orders', requireAuth, async (req, res) => {
+  const { data: day, error: dayError } = await supabase.from('business_days').select('ended_at').eq('id', req.params.id).maybeSingle();
+  if (dayError) return res.status(500).json({ error: dayError.message });
+  if (!day || !day.ended_at) return res.status(404).json({ error: 'Día no encontrado o todavía abierto.' });
+  const { data, error } = await supabase.from('orders').select('*').eq('archived_at', day.ended_at).order('order_number', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ orders: data || [] });
+});
+
 io.use((socket, next) => {
   const cookies = cookie.parse(socket.handshake.headers.cookie || '');
   socket.data.isAdmin = AUTH_DISABLED || !!verifyToken(cookies[COOKIE_NAME]);

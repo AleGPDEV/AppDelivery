@@ -16,6 +16,7 @@ const pwNewEl = document.getElementById('pw-new');
 const pwBtnEl = document.getElementById('pw-btn');
 const pwStatusEl = document.getElementById('pw-status');
 const dayGateMsgEl = document.getElementById('day-gate-msg');
+const orderDupWarningEl = document.getElementById('order-dup-warning');
 
 function genId() {
   return `o-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -44,6 +45,23 @@ socket.on('business-day:status', ({ day }) => {
 // them in the "Asignar a" dropdown) — no map, no order list rendering here.
 const drivers = new Map(); // driverId -> { name, lat, lng, color }
 const orders = new Map(); // orderId -> order data, kept locally just so a freshly-created order can be routed right away
+
+// Aviso (no bloqueante) si el número de pedido ya está en uso por otro pedido
+// activo — no impide cargar, solo evita que dos pedidos distintos con el
+// mismo número se confundan entre sí en el registro.
+function findActiveOrderByNumber(number) {
+  if (!number) return null;
+  for (const o of orders.values()) {
+    if (!o.archivedAt && o.orderNumber === number) return o;
+  }
+  return null;
+}
+
+newOrderNumEl.addEventListener('input', () => {
+  const match = findActiveOrderByNumber(newOrderNumEl.value.trim());
+  orderDupWarningEl.style.display = match ? '' : 'none';
+  orderDupWarningEl.textContent = match ? `Ya hay un pedido activo con este número${match.name ? ` (${match.name})` : ''} — se puede cargar igual.` : '';
+});
 
 // Which fields the admin chose to show/require in the form below — persisted
 // server-side (Supabase) so it applies for every device, not just this one.
@@ -354,6 +372,8 @@ loadBtn.addEventListener('click', async () => {
   loadBtn.disabled = true;
   let okCount = 0;
   const failed = [];
+  const duplicates = []; // aviso, no bloquea la carga
+  const seenInBatch = new Set();
 
   for (let i = 0; i < rows.length; i++) {
     const { order, raw, amount, phone, name, custom } = rows[i];
@@ -370,19 +390,20 @@ loadBtn.addEventListener('click', async () => {
         continue;
       }
     }
+    if (order && (findActiveOrderByNumber(order) || seenInBatch.has(order))) duplicates.push(`#${order}`);
+    if (order) seenInBatch.add(order);
     socket.emit('order:add', { id: genId(), orderNumber: order, phone, name, lat: point ? point.lat : null, lng: point ? point.lng : null, label: point ? point.label : '', amount, custom });
     okCount++;
   }
 
   loadBtn.disabled = false;
-  if (failed.length === 0) {
-    loadStatusEl.textContent = `Se cargaron ${okCount} pedido${okCount === 1 ? '' : 's'} correctamente.`;
-    loadStatusEl.className = 'status ok';
-    stopsTextEl.value = '';
-  } else {
-    loadStatusEl.textContent = `${okCount} cargados. ${failed.length} con problemas:\n${failed.join('\n')}`;
-    loadStatusEl.className = 'status error';
-  }
+  let msg = failed.length === 0
+    ? `Se cargaron ${okCount} pedido${okCount === 1 ? '' : 's'} correctamente.`
+    : `${okCount} cargados. ${failed.length} con problemas:\n${failed.join('\n')}`;
+  if (duplicates.length > 0) msg += `\nOjo, número de pedido repetido: ${duplicates.join(', ')}.`;
+  loadStatusEl.textContent = msg;
+  loadStatusEl.className = failed.length === 0 ? 'status ok' : 'status error';
+  if (failed.length === 0) stopsTextEl.value = '';
 });
 
 const FIELD_INPUTS = {
