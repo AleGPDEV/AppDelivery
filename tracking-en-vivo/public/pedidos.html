@@ -19,6 +19,7 @@
     <a href="dashboard.html" class="tab-btn">Deliverys y mapa</a>
     <a href="caja.html" class="tab-btn">Rendición de caja</a>
     <a href="analiticas.html" class="tab-btn">Analíticas</a>
+    <a href="catalogo.html" class="tab-btn">Catálogo</a>
     <button id="theme-toggle-btn" class="tab-btn" type="button"></button>
     <button id="logout-btn" class="tab-btn" type="button">Cerrar sesión</button>
   </nav>
@@ -37,6 +38,15 @@
       </div>
     </section>
   </main>
+
+  <div id="items-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <button id="items-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+      <h2>Detalle del pedido</h2>
+      <div id="items-list"></div>
+      <div id="items-total" class="cart-total"></div>
+    </div>
+  </div>
 
   <div id="edit-overlay" class="modal-overlay" style="display:none;">
     <div class="modal-box">

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hacé tu pedido</title>
+<link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
+</head>
+<body>
+  <header class="wide">
+    <button id="theme-toggle-btn" class="tab-btn" type="button"></button>
+    <h1>Sushi Meshi Pando</h1>
+    <p class="subtitle">Elegí tus productos y hacé tu pedido — te lo llevamos a domicilio.</p>
+  </header>
+
+  <main class="wide">
+    <p id="closed-msg" class="status error" style="display:none;">No estamos aceptando pedidos en este momento. Volvé a intentar más tarde.</p>
+    <div id="catalog-container"></div>
+  </main>
+
+  <button id="cart-fab-btn" type="button" class="primary cart-fab" style="display:none;">🛒 Ver carrito</button>
+
+  <div id="cart-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <button id="cart-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+      <h2>Tu carrito</h2>
+      <div id="cart-items"></div>
+      <div id="cart-total" class="cart-total" style="display:none;"></div>
+      <button id="cart-checkout-btn" type="button" class="primary" style="margin-top:14px;">Continuar</button>
+    </div>
+  </div>
+
+  <div id="checkout-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <button id="checkout-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+      <div id="checkout-form">
+        <h2>Tus datos</h2>
+        <div class="field" data-field="phone">
+          <label for="checkout-phone">Celular</label>
+          <input type="text" id="checkout-phone" placeholder="Ej: 099 123 456">
+        </div>
+        <div class="field" data-field="name">
+          <label for="checkout-name">Nombre</label>
+          <input type="text" id="checkout-name" placeholder="Ej: Matias">
+        </div>
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" id="checkout-pickup" style="width:auto;">
+            Retiro en el local (no es delivery)
+          </label>
+        </div>
+        <div class="field" id="checkout-location-field" data-field="location">
+          <label for="checkout-location">Dirección de entrega</label>
+          <input type="text" id="checkout-location" placeholder="Link de Google Maps, dirección o coordenadas">
+        </div>
+        <div id="checkout-custom-fields"></div>
+        <button id="checkout-submit-btn" type="button" class="primary">Enviar pedido</button>
+        <p id="checkout-status" class="status"></p>
+      </div>
+      <div id="checkout-confirmation" style="display:none; text-align:center;">
+        <h2>¡Gracias!</h2>
+        <p id="checkout-confirmation-msg"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="geo.js?v=4"></script>
+  <script src="pedido-cliente.js"></script>
+</body>
+</html>

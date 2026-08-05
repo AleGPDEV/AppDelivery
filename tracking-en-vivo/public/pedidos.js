@@ -12,6 +12,10 @@ const editAmountEl = document.getElementById('edit-amount');
 const editCustomContainerEl = document.getElementById('edit-custom-fields-container');
 const editSaveBtn = document.getElementById('edit-save-btn');
 const editStatusEl = document.getElementById('edit-status');
+const itemsOverlay = document.getElementById('items-overlay');
+const itemsCloseBtn = document.getElementById('items-close-btn');
+const itemsListEl = document.getElementById('items-list');
+const itemsTotalEl = document.getElementById('items-total');
 
 const STATUS_OPTIONS = [['pending', 'En preparación'], ['en_camino', 'En Camino'], ['entregado', 'Entregado']];
 const PAYMENT_OPTIONS = ['', 'Efectivo', 'Transferencia', 'Débito'];
@@ -52,6 +56,9 @@ function renderHeader() {
   const tick = document.createElement('th');
   tick.textContent = 'Ticket';
   orderTheadRowEl.appendChild(tick);
+  const origin = document.createElement('th');
+  origin.textContent = 'Origen';
+  orderTheadRowEl.appendChild(origin);
   visibleFieldColumns().forEach((c) => {
     const th = document.createElement('th');
     th.textContent = c.label;
@@ -108,6 +115,10 @@ function renderOrders() {
     const tdTicket = document.createElement('td');
     tdTicket.textContent = o.seq != null ? `#${o.seq}` : '';
     tr.appendChild(tdTicket);
+
+    const tdOrigin = document.createElement('td');
+    tdOrigin.textContent = o.source === 'web' ? '🌐 Web' : '';
+    tr.appendChild(tdOrigin);
 
     fieldColumns.forEach((c) => {
       const td = document.createElement('td');
@@ -169,6 +180,16 @@ function renderOrders() {
     tdActions.style.display = 'flex';
     tdActions.style.gap = '4px';
 
+    if (o.items && o.items.length > 0) {
+      const itemsBtn = document.createElement('button');
+      itemsBtn.type = 'button';
+      itemsBtn.className = 'small';
+      itemsBtn.textContent = '🧾';
+      itemsBtn.title = 'Ver detalle del pedido';
+      itemsBtn.addEventListener('click', () => openItemsModal(o));
+      tdActions.appendChild(itemsBtn);
+    }
+
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'small';
@@ -193,6 +214,28 @@ function renderOrders() {
     orderTbodyEl.appendChild(tr);
   });
 }
+
+// Pedido web (source: 'web'): detalle de solo lectura de lo que el cliente
+// puso en el carrito — el monto sigue editándose desde "Editar pedido" como
+// cualquier otro pedido, esto es solo para ver qué compró.
+function openItemsModal(o) {
+  itemsListEl.innerHTML = '';
+  (o.items || []).forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'cart-item';
+    const label = document.createElement('span');
+    label.textContent = `${item.qty} × ${item.name}`;
+    const amount = document.createElement('span');
+    amount.textContent = `$${(item.price * item.qty).toFixed(2)}`;
+    row.append(label, amount);
+    itemsListEl.appendChild(row);
+  });
+  itemsTotalEl.innerHTML = `<span>Total</span><span>$${(o.amount || 0).toFixed(2)}</span>`;
+  itemsOverlay.style.display = 'flex';
+}
+
+itemsCloseBtn.addEventListener('click', () => { itemsOverlay.style.display = 'none'; });
+itemsOverlay.addEventListener('click', (e) => { if (e.target === itemsOverlay) itemsOverlay.style.display = 'none'; });
 
 // "Editar pedido": a diferencia de los dropdowns sueltos de la tabla (que
 // solo tocan estado/forma de pago), esto deja cambiar cualquier campo. El

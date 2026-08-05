@@ -1,10 +1,12 @@
 require('dotenv').config();
+const crypto = require('crypto');
 const express = require('express');
 const http = require('http');
 const path = require('path');
 const cookie = require('cookie');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
 const { Server } = require('socket.io');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -39,7 +41,7 @@ function verifyToken(token) {
 // login.html itself stay public. The real security boundary is the socket
 // handler checks below (socket.data.isAdmin), this is just so an anonymous
 // visitor lands on the login screen instead of a blank admin page.
-const PROTECTED_PAGES = ['/nuevo-pedido.html', '/pedidos.html', '/dashboard.html', '/caja.html', '/analiticas.html'];
+const PROTECTED_PAGES = ['/nuevo-pedido.html', '/pedidos.html', '/dashboard.html', '/caja.html', '/analiticas.html', '/catalogo.html'];
 
 app.use((req, res, next) => {
   if (!AUTH_DISABLED && PROTECTED_PAGES.includes(req.path) && !verifyToken(getToken(req))) {
@@ -110,6 +112,16 @@ const routes = new Map();
 // registro histórico (el "Debe entregar" ya queda fijo en business_days al
 // cerrar el día).
 const driverCashStarts = new Map();
+// socket.id -> timestamp del último pedido web aceptado, para frenar spam
+// sin agregar ninguna librería de rate-limiting — mismo criterio "resolvelo
+// con un Map" que el resto de este archivo.
+const webOrderCooldown = new Map();
+const WEB_ORDER_COOLDOWN_MS = 15000;
+
+// categoryId -> { name, sortOrder, visible }
+const categories = new Map();
+// productId -> { categoryId, name, description, price, imageUrl, sortOrder, visible }
+const products = new Map();
 
 let formConfig = {
   phone: { visible: true, required: true },
@@ -152,6 +164,74 @@ function cashStartList() {
   return Array.from(driverCashStarts.entries()).map(([driverId, amount]) => ({ driverId, amount }));
 }
 
+function categoryList() {
+  return Array.from(categories.entries())
+    .map(([id, c]) => ({ id, ...c }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function productList() {
+  return Array.from(products.entries())
+    .map(([id, p]) => ({ id, ...p }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function catalogSnapshot() {
+  return { categories: categoryList(), products: productList() };
+}
+
+function categoryRow(id, c) {
+  return { id, name: c.name, sort_order: c.sortOrder, visible: c.visible };
+}
+
+function productRow(id, p) {
+  return {
+    id,
+    category_id: p.categoryId,
+    name: p.name,
+    description: p.description || null,
+    price: p.price,
+    image_url: p.imageUrl || null,
+    sort_order: p.sortOrder,
+    visible: p.visible,
+  };
+}
+
+function persistCategory(id, c) {
+  supabase.from('categories').upsert(categoryRow(id, c)).then(({ error }) => {
+    if (error) console.error('Error guardando categoría en Supabase:', error.message);
+  });
+}
+
+function persistProduct(id, p) {
+  supabase.from('products').upsert(productRow(id, p)).then(({ error }) => {
+    if (error) console.error('Error guardando producto en Supabase:', error.message);
+  });
+}
+
+async function loadCatalog() {
+  const { data: catRows, error: catError } = await supabase.from('categories').select('*');
+  if (catError) { console.error('Error cargando categorías de Supabase:', catError.message); return; }
+  catRows.forEach((row) => {
+    categories.set(row.id, { name: row.name, sortOrder: row.sort_order, visible: row.visible });
+  });
+
+  const { data: prodRows, error: prodError } = await supabase.from('products').select('*');
+  if (prodError) { console.error('Error cargando productos de Supabase:', prodError.message); return; }
+  prodRows.forEach((row) => {
+    products.set(row.id, {
+      categoryId: row.category_id,
+      name: row.name,
+      description: row.description,
+      price: row.price,
+      imageUrl: row.image_url,
+      sortOrder: row.sort_order,
+      visible: row.visible,
+    });
+  });
+  console.log(`Catálogo cargado desde Supabase: ${categories.size} categorías, ${products.size} productos`);
+}
+
 function orderRow(id, o) {
   return {
     id,
@@ -170,6 +250,8 @@ function orderRow(id, o) {
     archived_at: o.archivedAt ? new Date(o.archivedAt).toISOString() : null,
     updated_at: new Date(o.updatedAt).toISOString(),
     custom: o.custom || {},
+    source: o.source || 'admin',
+    items: o.items || [],
   };
 }
 
@@ -230,6 +312,8 @@ async function loadOrders() {
       archivedAt: row.archived_at ? new Date(row.archived_at).getTime() : null,
       updatedAt: new Date(row.updated_at).getTime(),
       custom: row.custom || {},
+      source: row.source || 'admin',
+      items: row.items || [],
     });
   });
   console.log(`Pedidos cargados desde Supabase: ${orders.size}`);
@@ -366,6 +450,30 @@ app.get('/api/business-day/:id/orders', requireAuth, async (req, res) => {
 // preventivo para pruebas". A diferencia de antes, esto SÍ toca el
 // historial real: no hay forma de recuperar nada después de tocarlo. El
 // frontend (analiticas.js) avisa esto bien claro antes de llamar acá.
+const productImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
+});
+
+app.post('/api/products/:id/image', requireAuth, productImageUpload.single('image'), async (req, res) => {
+  const p = products.get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Producto no encontrado.' });
+  if (!req.file) return res.status(400).json({ error: 'Falta la imagen.' });
+
+  const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().slice(0, 10);
+  const path = `${req.params.id}-${Date.now()}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from('product-images')
+    .upload(path, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
+  if (uploadError) return res.status(500).json({ error: uploadError.message });
+
+  const { data } = supabase.storage.from('product-images').getPublicUrl(path);
+  p.imageUrl = data.publicUrl;
+  persistProduct(req.params.id, p);
+  io.emit('catalog:snapshot', catalogSnapshot());
+  res.json({ ok: true, imageUrl: p.imageUrl });
+});
+
 app.post('/api/admin/reset-today', requireAuth, async (req, res) => {
   const allOrderIds = Array.from(orders.keys());
   orders.clear();
@@ -399,6 +507,7 @@ io.on('connection', (socket) => {
   socket.emit('form-config:snapshot', formConfig);
   socket.emit('business-day:status', { day: openBusinessDay });
   socket.emit('cash-starts:snapshot', cashStartList());
+  socket.emit('catalog:snapshot', catalogSnapshot());
 
   socket.on('driver:update', ({ id, name, lat, lng }) => {
     if (!id || typeof lat !== 'number' || typeof lng !== 'number') return;
@@ -546,6 +655,151 @@ io.on('connection', (socket) => {
     driverCashStarts.set(driverId, amount);
     io.emit('driver:cash-start', { driverId, amount });
   });
+
+  // Catálogo (pantalla del cliente): el admin arma categorías y productos
+  // acá; cualquier socket conectado (admin o cliente) recibe el snapshot
+  // completo, a diferencia de orders:snapshot que sí es sensible.
+  socket.on('category:add', ({ name }) => {
+    if (!socket.data.isAdmin || !name) return;
+    const id = crypto.randomUUID();
+    const entry = { name: name.toString().slice(0, 60), sortOrder: categories.size, visible: true };
+    categories.set(id, entry);
+    persistCategory(id, entry);
+    io.emit('catalog:snapshot', catalogSnapshot());
+  });
+
+  socket.on('category:edit', ({ id, fields }) => {
+    if (!socket.data.isAdmin) return;
+    const c = categories.get(id);
+    if (!c || !fields) return;
+    if (typeof fields.name === 'string') c.name = fields.name.slice(0, 60);
+    if (typeof fields.sortOrder === 'number') c.sortOrder = fields.sortOrder;
+    if (typeof fields.visible === 'boolean') c.visible = fields.visible;
+    persistCategory(id, c);
+    io.emit('catalog:snapshot', catalogSnapshot());
+  });
+
+  socket.on('category:remove', ({ id }) => {
+    if (!socket.data.isAdmin || !id) return;
+    const hasProducts = Array.from(products.values()).some((p) => p.categoryId === id);
+    if (hasProducts) return; // el admin tiene que vaciar/mover los productos primero
+    categories.delete(id);
+    supabase.from('categories').delete().eq('id', id).then(({ error }) => {
+      if (error) console.error('Error borrando categoría en Supabase:', error.message);
+    });
+    io.emit('catalog:snapshot', catalogSnapshot());
+  });
+
+  socket.on('product:add', ({ categoryId, name, description, price }) => {
+    if (!socket.data.isAdmin || !categoryId || !name) return;
+    const id = crypto.randomUUID();
+    const entry = {
+      categoryId,
+      name: name.toString().slice(0, 80),
+      description: (description || '').toString().slice(0, 300),
+      price: typeof price === 'number' ? price : 0,
+      imageUrl: null,
+      sortOrder: products.size,
+      visible: true,
+    };
+    products.set(id, entry);
+    persistProduct(id, entry);
+    io.emit('catalog:snapshot', catalogSnapshot());
+  });
+
+  socket.on('product:edit', ({ id, fields }) => {
+    if (!socket.data.isAdmin) return;
+    const p = products.get(id);
+    if (!p || !fields) return;
+    if (typeof fields.categoryId === 'string') p.categoryId = fields.categoryId;
+    if (typeof fields.name === 'string') p.name = fields.name.slice(0, 80);
+    if (typeof fields.description === 'string') p.description = fields.description.slice(0, 300);
+    if (typeof fields.price === 'number') p.price = fields.price;
+    if (typeof fields.sortOrder === 'number') p.sortOrder = fields.sortOrder;
+    if (typeof fields.visible === 'boolean') p.visible = fields.visible;
+    persistProduct(id, p);
+    io.emit('catalog:snapshot', catalogSnapshot());
+  });
+
+  socket.on('product:remove', ({ id }) => {
+    if (!socket.data.isAdmin || !id) return;
+    products.delete(id);
+    supabase.from('products').delete().eq('id', id).then(({ error }) => {
+      if (error) console.error('Error borrando producto en Supabase:', error.message);
+    });
+    io.emit('catalog:snapshot', catalogSnapshot());
+  });
+
+  // Pedido enviado desde pedido-cliente.html — socket público, sin
+  // socket.data.isAdmin. A diferencia de order:add (que confía en un admin
+  // ya logueado), acá no se confía en nada de lo que mande el cliente salvo
+  // el id de cada producto: precio, nombre e id del pedido siempre se
+  // recalculan/generan del lado del servidor. Usa ack para poder avisarle al
+  // cliente si algo salió mal (order:add es fire-and-forget porque el admin
+  // ve el resultado al toque en la tabla; acá no hay tabla que mirar).
+  socket.on('order:web-add', (payload, ack) => {
+    ack = typeof ack === 'function' ? ack : () => {};
+
+    const last = webOrderCooldown.get(socket.id) || 0;
+    if (Date.now() - last < WEB_ORDER_COOLDOWN_MS) {
+      return ack({ ok: false, error: 'Esperá un momento antes de enviar otro pedido.' });
+    }
+    if (!openBusinessDay) {
+      return ack({ ok: false, error: 'No estamos aceptando pedidos en este momento.' });
+    }
+
+    const cartItems = Array.isArray(payload?.items) ? payload.items.slice(0, 30) : [];
+    if (cartItems.length === 0) return ack({ ok: false, error: 'El carrito está vacío.' });
+
+    const resolvedItems = [];
+    let amount = 0;
+    for (const it of cartItems) {
+      const p = products.get(it?.productId);
+      const qty = Math.min(Math.max(parseInt(it?.qty, 10) || 0, 1), 50);
+      if (!p || p.visible === false) {
+        return ack({ ok: false, error: 'Un producto de tu carrito ya no está disponible. Actualizá la página e intentá de nuevo.' });
+      }
+      resolvedItems.push({ productId: it.productId, name: p.name, price: p.price, qty });
+      amount += p.price * qty;
+    }
+
+    const missing = [];
+    if (formConfig.phone?.visible !== false && formConfig.phone?.required && !payload?.phone) missing.push('Celular');
+    if (formConfig.name?.visible !== false && formConfig.name?.required && !payload?.name) missing.push('Nombre');
+    if (formConfig.location?.visible !== false && formConfig.location?.required && !payload?.pickup && !payload?.location) missing.push('Ubicación de entrega');
+    (formConfig.customFields || []).forEach((f) => {
+      if (f.visible !== false && f.required && !(payload?.custom && payload.custom[f.key])) missing.push(f.label);
+    });
+    if (missing.length > 0) return ack({ ok: false, error: `Falta completar: ${missing.join(', ')}.` });
+
+    const id = crypto.randomUUID();
+    const seq = nextSeq++;
+    const hasLocation = typeof payload?.lat === 'number' && typeof payload?.lng === 'number';
+    const entry = {
+      seq,
+      orderNumber: `WEB-${seq}`,
+      phone: (payload.phone || '').toString().slice(0, 30),
+      name: (payload.name || '').toString().slice(0, 60),
+      lat: hasLocation ? payload.lat : null,
+      lng: hasLocation ? payload.lng : null,
+      label: (payload.label || (payload.pickup ? 'Retira en el local' : '')).toString().slice(0, 200),
+      assignedTo: null,
+      status: 'pending',
+      amount,
+      paymentMethod: '',
+      reconciledAt: null,
+      archivedAt: null,
+      updatedAt: Date.now(),
+      custom: sanitizeCustom(payload.custom),
+      source: 'web',
+      items: resolvedItems,
+    };
+    orders.set(id, entry);
+    persistOrder(id, entry);
+    io.emit('order:update', { id, ...entry });
+    webOrderCooldown.set(socket.id, Date.now());
+    ack({ ok: true, orderNumber: entry.orderNumber, seq });
+  });
 });
 
 setInterval(() => {
@@ -567,6 +821,7 @@ async function start() {
   await loadFormConfig();
   await loadOrders();
   await loadOpenBusinessDay();
+  await loadCatalog();
   server.listen(PORT, () => {
     console.log(`Tracking en vivo corriendo en http://localhost:${PORT}`);
     console.log(`Login:         http://localhost:${PORT}/login.html`);
@@ -576,6 +831,8 @@ async function start() {
     console.log(`Mapa:          http://localhost:${PORT}/dashboard.html`);
     console.log(`Rendición:     http://localhost:${PORT}/caja.html`);
     console.log(`Analíticas:    http://localhost:${PORT}/analiticas.html`);
+    console.log(`Catálogo:      http://localhost:${PORT}/catalogo.html`);
+    console.log(`Pedido online: http://localhost:${PORT}/pedido-cliente.html`);
   });
 }
 
