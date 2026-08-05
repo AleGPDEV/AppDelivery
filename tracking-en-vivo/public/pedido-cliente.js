@@ -225,11 +225,9 @@ function customFieldInputId(key) {
 }
 
 function renderCheckoutFields() {
-  // El celular siempre se pide (es fijo, ya no depende de formConfig).
-  const nameField = document.querySelector('[data-field="name"]');
-  const nameCfg = formConfig.name || { visible: true };
-  if (nameField) nameField.style.display = nameCfg.visible === false ? 'none' : '';
-
+  // Celular y Nombre siempre se piden — fijo, ya no depende de formConfig
+  // (antes leía formConfig.name.visible, que podía traer un `false` guardado
+  // de antes de este cambio sin ninguna forma de volver a activarlo).
   checkoutCustomFieldsEl.innerHTML = '';
   (formConfig.customFields || []).forEach((f) => {
     if (f.visible === false) return;
@@ -273,7 +271,7 @@ checkoutSubmitBtn.addEventListener('click', async () => {
   // dependen de formConfig.
   const missing = [];
   if (!checkoutPhoneEl.value.trim()) missing.push('Celular');
-  if (formConfig.name?.visible !== false && formConfig.name?.required && !checkoutNameEl.value.trim()) missing.push('Nombre');
+  if (formConfig.name?.required && !checkoutNameEl.value.trim()) missing.push('Nombre');
   if (!checkoutPickupEl.checked && !checkoutLocationEl.value.trim()) missing.push('Dirección de entrega');
   const custom = {};
   (formConfig.customFields || []).forEach((f) => {

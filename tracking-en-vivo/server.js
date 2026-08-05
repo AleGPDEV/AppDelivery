@@ -918,7 +918,7 @@ io.on('connection', (socket) => {
     const hasLocation = typeof payload?.lat === 'number' && typeof payload?.lng === 'number';
     const missing = [];
     if (!payload?.phone) missing.push('Celular');
-    if (formConfig.name?.visible !== false && formConfig.name?.required && !payload?.name) missing.push('Nombre');
+    if (formConfig.name?.required && !payload?.name) missing.push('Nombre');
     if (!payload?.pickup && !hasLocation) missing.push('Ubicación de entrega');
     (formConfig.customFields || []).forEach((f) => {
       if (f.visible !== false && f.required && !(payload?.custom && payload.custom[f.key])) missing.push(f.label);

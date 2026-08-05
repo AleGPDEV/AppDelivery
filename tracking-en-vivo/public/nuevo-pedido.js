@@ -112,10 +112,14 @@ function labelFor(key) {
 // planilla) sigue exactamente esta lista, así una columna de menos o de más
 // nunca desalinea el resto de la fila. Los personalizados van siempre al
 // final, en el orden en que se crearon.
+// Los 5 campos fijos (phone/name/orderNumber/location/amount) SIEMPRE van —
+// ya no son ocultables desde Ajustes. Antes esto leía formConfig[key].visible,
+// que podía traer un `false` guardado de antes de este cambio y no había
+// forma de volver a mostrarlo (el toggle para eso ya no existe) — quedaban
+// ocultos para siempre, tanto acá como en la tabla de Pedidos.
 function visibleFieldOrder() {
-  const builtins = FIELD_ORDER.filter((key) => (formConfig[key] || { visible: true }).visible !== false);
   const customs = customFields().filter((f) => f.visible !== false).map((f) => f.key);
-  return [...builtins, ...customs];
+  return [...FIELD_ORDER, ...customs];
 }
 
 function updateBulkHint() {
@@ -153,11 +157,9 @@ function renderCustomFieldInputs() {
 }
 
 function applyFormConfig() {
-  Object.keys(FIELD_LABELS).forEach((key) => {
-    const wrapper = document.querySelector(`[data-field="${key}"]`);
-    const cfg = formConfig[key] || { visible: true, required: false };
-    if (wrapper) wrapper.style.display = cfg.visible === false ? 'none' : '';
-  });
+  // phone/name/orderNumber/amount ya no se ocultan nunca (ver comentario en
+  // visibleFieldOrder) — location tiene su propio mecanismo (el toggle
+  // Retira/Envío, ver applyDeliveryTypeButtons), no pasa por acá.
   renderCustomFieldInputs();
   updateBulkHint();
 }
@@ -270,31 +272,22 @@ loadBtn.addEventListener('click', async () => {
   if (failed.length === 0) stopsTextEl.value = '';
 });
 
-// Teléfono y tipo de envío ya no son configurables — son siempre
-// obligatorios, así que se validan aparte (no dependen de formConfig).
-const FIELD_INPUTS = {
-  name: newNameEl,
-  orderNumber: newOrderNumEl,
-  amount: newAmountEl,
-};
-
+// Teléfono, Nº de pedido, Monto y tipo de envío son siempre obligatorios;
+// Nombre siempre opcional — fijo en el código, ya no depende de formConfig
+// (esos 5 campos ya no son configurables desde Ajustes).
 newOrderBtn.addEventListener('click', async () => {
-  const missing = Object.keys(FIELD_INPUTS).filter((key) => {
-    const cfg = formConfig[key];
-    return cfg && cfg.visible !== false && cfg.required && !FIELD_INPUTS[key].value.trim();
-  });
-  if (!newPhoneEl.value.trim()) missing.push('phone');
-  if (!deliveryType) missing.push('deliveryType');
+  const missing = [];
+  if (!newPhoneEl.value.trim()) missing.push('Celular');
+  if (!newOrderNumEl.value.trim()) missing.push('Nº de pedido');
+  if (!newAmountEl.value.trim()) missing.push('Monto');
+  if (!deliveryType) missing.push('Tipo de envío (Retira/Envío)');
   const missingCustomFields = customFields().filter((f) => {
     if (f.visible === false || !f.required) return false;
     const input = document.getElementById(customFieldInputId(f.key));
     return !input || !input.value.trim();
   });
   if (missing.length > 0 || missingCustomFields.length > 0) {
-    const labels = [
-      ...missing.map((key) => (key === 'phone' ? 'Celular' : key === 'deliveryType' ? 'Tipo de envío (Retira/Envío)' : labelFor(key))),
-      ...missingCustomFields.map((f) => f.label),
-    ];
+    const labels = [...missing, ...missingCustomFields.map((f) => f.label)];
     newOrderStatusEl.textContent = `Falta completar: ${labels.join(', ')}.`;
     newOrderStatusEl.className = 'status error';
     return;

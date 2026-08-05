@@ -25,8 +25,8 @@ function paymentOptions() {
   return [''].concat((formConfig.paymentMethods || []).map((m) => m.name));
 }
 
-// Mismas columnas que se pueden ocultar/mostrar desde "Personalizar campos
-// del formulario" en nuevo-pedido.js — la tabla sigue esa misma elección.
+// Estas 4 ya no son ocultables desde Ajustes — siempre aparecen. Solo los
+// campos personalizados se pueden mostrar/ocultar.
 const FIELD_COLUMNS = [
   { key: 'phone', label: 'Teléfono' },
   { key: 'name', label: 'Nombre' },
@@ -45,11 +45,10 @@ const knownDriverNames = new Map(); // survives a driver going offline, so old a
 let formConfig = { customFields: [], paymentMethods: [] };
 
 function visibleFieldColumns() {
-  const builtins = FIELD_COLUMNS.filter((c) => (formConfig[c.key] || { visible: true }).visible !== false);
   const customs = (formConfig.customFields || [])
     .filter((f) => f.visible !== false)
     .map((f) => ({ key: f.key, label: f.label }));
-  return [...builtins, ...customs];
+  return [...FIELD_COLUMNS, ...customs];
 }
 
 function renderHeader() {
