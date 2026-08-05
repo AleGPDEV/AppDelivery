@@ -1,5 +1,6 @@
 const closedMsgEl = document.getElementById('closed-msg');
 const catalogContainerEl = document.getElementById('catalog-container');
+const categoryNavEl = document.getElementById('category-nav');
 
 const cartFabBtn = document.getElementById('cart-fab-btn');
 const cartOverlay = document.getElementById('cart-overlay');
@@ -78,9 +79,29 @@ function sortedCategories() {
     .sort((a, b) => a[1].sortOrder - b[1].sortOrder);
 }
 
+function renderCategoryNav(sortedCats) {
+  categoryNavEl.innerHTML = '';
+  if (sortedCats.length <= 1) {
+    categoryNavEl.hidden = true;
+    return;
+  }
+  categoryNavEl.hidden = false;
+  sortedCats.forEach(([categoryId, c]) => {
+    const target = document.getElementById(`cat-${categoryId}`);
+    if (!target) return; // categoría sin productos visibles, no se renderizó su section
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'category-chip';
+    chip.textContent = c.name;
+    chip.addEventListener('click', () => target.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    categoryNavEl.appendChild(chip);
+  });
+}
+
 function renderCatalog() {
   catalogContainerEl.innerHTML = '';
-  sortedCategories().forEach(([categoryId, c]) => {
+  const cats = sortedCategories();
+  cats.forEach(([categoryId, c]) => {
     const items = Array.from(products.entries())
       .filter(([, p]) => p.categoryId === categoryId && p.visible !== false)
       .sort((a, b) => a[1].sortOrder - b[1].sortOrder);
@@ -88,6 +109,7 @@ function renderCatalog() {
 
     const section = document.createElement('section');
     section.className = 'panel';
+    section.id = `cat-${categoryId}`;
     const heading = document.createElement('h2');
     heading.textContent = c.name;
     section.appendChild(heading);
@@ -156,13 +178,14 @@ function renderCatalog() {
     section.appendChild(grid);
     catalogContainerEl.appendChild(section);
   });
+  renderCategoryNav(cats);
 }
 
 function renderCart() {
   cartItemsEl.innerHTML = '';
   const entries = Object.entries(cart).filter(([id]) => products.has(id));
   if (entries.length === 0) {
-    cartItemsEl.innerHTML = '<p class="hint">Todavía no agregaste nada.</p>';
+    cartItemsEl.innerHTML = '<div class="empty-cart"><span class="empty-cart-icon">🛍️</span><p class="hint">Todavía no agregaste nada.</p></div>';
     cartTotalEl.style.display = 'none';
     cartCheckoutBtn.disabled = true;
     return;

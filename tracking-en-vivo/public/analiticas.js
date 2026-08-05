@@ -80,7 +80,7 @@ function renderDailyChart(days) {
     bar.style.width = '100%';
     bar.style.height = `${heightPct}%`;
     bar.style.background = 'var(--primary)';
-    bar.style.borderRadius = '4px 4px 0 0';
+    bar.style.borderRadius = 'var(--radius-sm) var(--radius-sm) 0 0';
 
     const label = document.createElement('span');
     label.style.fontSize = '0.7rem';

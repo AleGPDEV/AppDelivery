@@ -4,17 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hacé tu pedido</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
 </head>
 <body>
-  <header class="wide">
+  <header class="wide hero">
     <button id="theme-toggle-btn" class="tab-btn" type="button"></button>
-    <h1>Sushi Meshi Pando</h1>
-    <p class="subtitle">Elegí tus productos y hacé tu pedido — te lo llevamos a domicilio.</p>
+    <div class="hero-content">
+      <span class="hero-eyebrow">🍣 Delivery</span>
+      <h1>Sushi Meshi Pando</h1>
+      <p class="subtitle">Elegí tus productos y hacé tu pedido — te lo llevamos a domicilio.</p>
+    </div>
   </header>
 
   <main class="wide">
+    <nav id="category-nav" class="category-nav" hidden></nav>
     <p id="closed-msg" class="status error" style="display:none;">No estamos aceptando pedidos en este momento. Volvé a intentar más tarde.</p>
     <div id="catalog-container"></div>
   </main>

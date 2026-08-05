@@ -38,7 +38,7 @@ const MoneyCounter = (() => {
     panel.style.marginTop = '8px';
     panel.style.padding = '10px';
     panel.style.border = '1px solid var(--border)';
-    panel.style.borderRadius = '8px';
+    panel.style.borderRadius = 'var(--radius-md)';
     toggleBtn.insertAdjacentElement('afterend', panel);
 
     function updateTotal() {
