@@ -18,7 +18,12 @@ const itemsListEl = document.getElementById('items-list');
 const itemsTotalEl = document.getElementById('items-total');
 
 const STATUS_OPTIONS = [['pending', 'En preparación'], ['en_camino', 'En Camino'], ['entregado', 'Entregado']];
-const PAYMENT_OPTIONS = ['', 'Efectivo', 'Transferencia', 'Débito'];
+
+// Antes era una lista fija acá — ahora sale de Ajustes (formConfig.paymentMethods),
+// para que un método nuevo aparezca solo, sin tocar código.
+function paymentOptions() {
+  return [''].concat((formConfig.paymentMethods || []).map((m) => m.name));
+}
 
 // Mismas columnas que se pueden ocultar/mostrar desde "Personalizar campos
 // del formulario" en nuevo-pedido.js — la tabla sigue esa misma elección.
@@ -37,7 +42,7 @@ const socket = io();
 const drivers = new Map(); // driverId -> { name, lat, lng, color }
 const orders = new Map(); // orderId -> order data
 const knownDriverNames = new Map(); // survives a driver going offline, so old assignments still show a name
-let formConfig = { customFields: [] };
+let formConfig = { customFields: [], paymentMethods: [] };
 
 function visibleFieldColumns() {
   const builtins = FIELD_COLUMNS.filter((c) => (formConfig[c.key] || { visible: true }).visible !== false);
@@ -150,7 +155,7 @@ function renderOrders() {
 
     const tdPayment = document.createElement('td');
     const paySelect = document.createElement('select');
-    PAYMENT_OPTIONS.forEach((pm) => {
+    paymentOptions().forEach((pm) => {
       const opt = document.createElement('option');
       opt.value = pm;
       opt.textContent = pm || 'Sin especificar';

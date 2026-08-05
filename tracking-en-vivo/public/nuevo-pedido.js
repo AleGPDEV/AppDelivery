@@ -6,24 +6,35 @@ const newPhoneEl = document.getElementById('new-phone');
 const newNameEl = document.getElementById('new-name');
 const newOrderNumEl = document.getElementById('new-ordernum');
 const newLocationEl = document.getElementById('new-location');
+const newLocationFieldEl = document.getElementById('new-location-field');
+const deliveryTypePickupBtn = document.getElementById('delivery-type-pickup-btn');
+const deliveryTypeShippingBtn = document.getElementById('delivery-type-shipping-btn');
 const newAmountEl = document.getElementById('new-amount');
 const newAssignEl = document.getElementById('new-assign');
 const newOrderBtn = document.getElementById('new-order-btn');
 const newOrderStatusEl = document.getElementById('new-order-status');
-const fieldConfigListEl = document.getElementById('field-config-list');
-const pwCurrentEl = document.getElementById('pw-current');
-const pwNewEl = document.getElementById('pw-new');
-const pwBtnEl = document.getElementById('pw-btn');
-const pwStatusEl = document.getElementById('pw-status');
 const dayGateMsgEl = document.getElementById('day-gate-msg');
 const orderDupWarningEl = document.getElementById('order-dup-warning');
-const settingsBtn = document.getElementById('settings-btn');
-const settingsOverlay = document.getElementById('settings-overlay');
-const settingsCloseBtn = document.getElementById('settings-close-btn');
 
-settingsBtn.addEventListener('click', () => { settingsOverlay.style.display = 'flex'; });
-settingsCloseBtn.addEventListener('click', () => { settingsOverlay.style.display = 'none'; });
-settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) settingsOverlay.style.display = 'none'; });
+// Obligatorio elegir uno de los dos — no hay valor por defecto. `null`
+// bloquea "Agregar pedido" hasta que se toque alguno de los dos botones.
+let deliveryType = null;
+
+function applyDeliveryTypeButtons() {
+  deliveryTypePickupBtn.className = deliveryType === 'retira' ? 'primary small' : 'small';
+  deliveryTypeShippingBtn.className = deliveryType === 'envio' ? 'primary small' : 'small';
+  newLocationFieldEl.style.display = deliveryType === 'envio' ? '' : 'none';
+}
+
+deliveryTypePickupBtn.addEventListener('click', () => {
+  deliveryType = 'retira';
+  newLocationEl.value = '';
+  applyDeliveryTypeButtons();
+});
+deliveryTypeShippingBtn.addEventListener('click', () => {
+  deliveryType = 'envio';
+  applyDeliveryTypeButtons();
+});
 
 function genId() {
   return `o-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -151,174 +162,9 @@ function applyFormConfig() {
   updateBulkHint();
 }
 
-function renderFieldConfig() {
-  fieldConfigListEl.innerHTML = '';
-  Object.keys(FIELD_LABELS).forEach((key) => {
-    const cfg = formConfig[key] || { visible: true, required: false };
-    const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '16px';
-    row.style.padding = '6px 0';
-
-    const label = document.createElement('span');
-    label.style.flex = '1';
-    label.textContent = FIELD_LABELS[key];
-
-    const visibleLabel = document.createElement('label');
-    visibleLabel.style.display = 'flex';
-    visibleLabel.style.alignItems = 'center';
-    visibleLabel.style.gap = '4px';
-    visibleLabel.style.fontSize = '0.85rem';
-    const visibleCheck = document.createElement('input');
-    visibleCheck.type = 'checkbox';
-    visibleCheck.checked = cfg.visible !== false;
-    visibleLabel.append(visibleCheck, 'Mostrar');
-
-    const requiredLabel = document.createElement('label');
-    requiredLabel.style.display = 'flex';
-    requiredLabel.style.alignItems = 'center';
-    requiredLabel.style.gap = '4px';
-    requiredLabel.style.fontSize = '0.85rem';
-    const requiredCheck = document.createElement('input');
-    requiredCheck.type = 'checkbox';
-    requiredCheck.checked = !!cfg.required;
-    requiredCheck.disabled = !visibleCheck.checked;
-    requiredLabel.append(requiredCheck, 'Obligatorio');
-
-    function emitUpdate() {
-      requiredCheck.disabled = !visibleCheck.checked;
-      formConfig = { ...formConfig, [key]: { visible: visibleCheck.checked, required: visibleCheck.checked && requiredCheck.checked } };
-      socket.emit('form-config:update', formConfig);
-    }
-    visibleCheck.addEventListener('change', emitUpdate);
-    requiredCheck.addEventListener('change', emitUpdate);
-
-    row.append(label, visibleLabel, requiredLabel);
-    fieldConfigListEl.appendChild(row);
-  });
-
-  customFields().forEach((f) => {
-    const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '16px';
-    row.style.padding = '6px 0';
-
-    const label = document.createElement('span');
-    label.style.flex = '1';
-    label.textContent = f.label;
-
-    const visibleLabel = document.createElement('label');
-    visibleLabel.style.display = 'flex';
-    visibleLabel.style.alignItems = 'center';
-    visibleLabel.style.gap = '4px';
-    visibleLabel.style.fontSize = '0.85rem';
-    const visibleCheck = document.createElement('input');
-    visibleCheck.type = 'checkbox';
-    visibleCheck.checked = f.visible !== false;
-    visibleLabel.append(visibleCheck, 'Mostrar');
-
-    const requiredLabel = document.createElement('label');
-    requiredLabel.style.display = 'flex';
-    requiredLabel.style.alignItems = 'center';
-    requiredLabel.style.gap = '4px';
-    requiredLabel.style.fontSize = '0.85rem';
-    const requiredCheck = document.createElement('input');
-    requiredCheck.type = 'checkbox';
-    requiredCheck.checked = !!f.required;
-    requiredCheck.disabled = !visibleCheck.checked;
-    requiredLabel.append(requiredCheck, 'Obligatorio');
-
-    const driverLabel2 = document.createElement('label');
-    driverLabel2.style.display = 'flex';
-    driverLabel2.style.alignItems = 'center';
-    driverLabel2.style.gap = '4px';
-    driverLabel2.style.fontSize = '0.85rem';
-    const driverCheck = document.createElement('input');
-    driverCheck.type = 'checkbox';
-    driverCheck.checked = f.showToDriver !== false;
-    driverLabel2.append(driverCheck, 'Mostrar al delivery');
-
-    function emitUpdate() {
-      requiredCheck.disabled = !visibleCheck.checked;
-      formConfig = {
-        ...formConfig,
-        customFields: customFields().map((x) => (x.key === f.key
-          ? { ...x, visible: visibleCheck.checked, required: visibleCheck.checked && requiredCheck.checked, showToDriver: driverCheck.checked }
-          : x)),
-      };
-      socket.emit('form-config:update', formConfig);
-    }
-    visibleCheck.addEventListener('change', emitUpdate);
-    requiredCheck.addEventListener('change', emitUpdate);
-    driverCheck.addEventListener('change', emitUpdate);
-
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'danger small';
-    delBtn.textContent = 'Eliminar';
-    delBtn.addEventListener('click', () => {
-      formConfig = { ...formConfig, customFields: customFields().filter((x) => x.key !== f.key) };
-      socket.emit('form-config:update', formConfig);
-    });
-
-    row.append(label, visibleLabel, requiredLabel, driverLabel2, delBtn);
-    fieldConfigListEl.appendChild(row);
-  });
-
-  const addRow = document.createElement('div');
-  addRow.style.display = 'flex';
-  addRow.style.gap = '8px';
-  addRow.style.marginTop = '10px';
-  const newFieldInput = document.createElement('input');
-  newFieldInput.type = 'text';
-  newFieldInput.placeholder = 'Nombre del campo nuevo (ej: Piso)';
-  newFieldInput.style.flex = '1';
-  const addBtn = document.createElement('button');
-  addBtn.type = 'button';
-  addBtn.className = 'primary small';
-  addBtn.textContent = 'Agregar campo';
-  addBtn.addEventListener('click', () => {
-    const label = newFieldInput.value.trim();
-    if (!label) return;
-    const key = `custom_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-    formConfig = { ...formConfig, customFields: [...customFields(), { key, label, visible: true, required: false, showToDriver: true }] };
-    socket.emit('form-config:update', formConfig);
-    newFieldInput.value = '';
-  });
-  addRow.append(newFieldInput, addBtn);
-  fieldConfigListEl.appendChild(addRow);
-}
-
 socket.on('form-config:snapshot', (cfg) => {
   formConfig = cfg || {};
   applyFormConfig();
-  renderFieldConfig();
-});
-
-pwBtnEl.addEventListener('click', async () => {
-  const currentPassword = pwCurrentEl.value;
-  const newPassword = pwNewEl.value;
-  pwBtnEl.disabled = true;
-  pwStatusEl.textContent = '';
-  try {
-    const res = await fetch('/api/change-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ currentPassword, newPassword }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'No se pudo cambiar la contraseña.');
-    pwStatusEl.textContent = 'Contraseña actualizada.';
-    pwStatusEl.className = 'status ok';
-    pwCurrentEl.value = '';
-    pwNewEl.value = '';
-  } catch (e) {
-    pwStatusEl.textContent = e.message;
-    pwStatusEl.className = 'status error';
-  }
-  pwBtnEl.disabled = false;
 });
 
 function renderAssignOptions() {
@@ -410,7 +256,7 @@ loadBtn.addEventListener('click', async () => {
     }
     if (order && (findActiveOrderByNumber(order) || seenInBatch.has(order))) duplicates.push(`#${order}`);
     if (order) seenInBatch.add(order);
-    socket.emit('order:add', { id: genId(), orderNumber: order, phone, name, lat: point ? point.lat : null, lng: point ? point.lng : null, label: point ? point.label : '', amount, custom });
+    socket.emit('order:add', { id: genId(), orderNumber: order, phone, name, lat: point ? point.lat : null, lng: point ? point.lng : null, label: point ? point.label : '', amount, custom, pickup: !raw });
     okCount++;
   }
 
@@ -424,11 +270,11 @@ loadBtn.addEventListener('click', async () => {
   if (failed.length === 0) stopsTextEl.value = '';
 });
 
+// Teléfono y tipo de envío ya no son configurables — son siempre
+// obligatorios, así que se validan aparte (no dependen de formConfig).
 const FIELD_INPUTS = {
-  phone: newPhoneEl,
   name: newNameEl,
   orderNumber: newOrderNumEl,
-  location: newLocationEl,
   amount: newAmountEl,
 };
 
@@ -437,21 +283,31 @@ newOrderBtn.addEventListener('click', async () => {
     const cfg = formConfig[key];
     return cfg && cfg.visible !== false && cfg.required && !FIELD_INPUTS[key].value.trim();
   });
+  if (!newPhoneEl.value.trim()) missing.push('phone');
+  if (!deliveryType) missing.push('deliveryType');
   const missingCustomFields = customFields().filter((f) => {
     if (f.visible === false || !f.required) return false;
     const input = document.getElementById(customFieldInputId(f.key));
     return !input || !input.value.trim();
   });
   if (missing.length > 0 || missingCustomFields.length > 0) {
-    const labels = [...missing.map(labelFor), ...missingCustomFields.map((f) => f.label)];
+    const labels = [
+      ...missing.map((key) => (key === 'phone' ? 'Celular' : key === 'deliveryType' ? 'Tipo de envío (Retira/Envío)' : labelFor(key))),
+      ...missingCustomFields.map((f) => f.label),
+    ];
     newOrderStatusEl.textContent = `Falta completar: ${labels.join(', ')}.`;
+    newOrderStatusEl.className = 'status error';
+    return;
+  }
+  if (deliveryType === 'envio' && !newLocationEl.value.trim()) {
+    newOrderStatusEl.textContent = 'Falta completar: Ubicación de entrega.';
     newOrderStatusEl.className = 'status error';
     return;
   }
 
   const orderNumber = newOrderNumEl.value.trim();
   newOrderBtn.disabled = true;
-  const locationRaw = newLocationEl.value.trim();
+  const locationRaw = deliveryType === 'envio' ? newLocationEl.value.trim() : '';
   const phone = newPhoneEl.value.trim();
   const name = newNameEl.value.trim();
   const assignTo = newAssignEl.value || null;
@@ -489,6 +345,7 @@ newOrderBtn.addEventListener('click', async () => {
     label: point ? point.label : '',
     amount,
     custom,
+    pickup: deliveryType === 'retira',
   });
   if (assignTo) {
     socket.emit('order:assign', { id, driverId: assignTo });
@@ -502,6 +359,8 @@ newOrderBtn.addEventListener('click', async () => {
   newLocationEl.value = '';
   newAmountEl.value = '';
   newAssignEl.value = '';
+  deliveryType = null;
+  applyDeliveryTypeButtons();
   customFields().forEach((f) => {
     const input = document.getElementById(customFieldInputId(f.key));
     if (input) input.value = '';

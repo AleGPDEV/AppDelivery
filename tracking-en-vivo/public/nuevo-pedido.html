@@ -23,7 +23,7 @@
     <a href="caja.html" class="tab-btn">Rendición de caja</a>
     <a href="analiticas.html" class="tab-btn">Analíticas</a>
     <a href="catalogo.html" class="tab-btn">Catálogo</a>
-    <button id="settings-btn" class="tab-btn" type="button">⚙ Configuración</button>
+    <a href="proveedores.html" class="tab-btn">Proveedores</a>
     <button id="theme-toggle-btn" class="tab-btn" type="button"></button>
     <button id="logout-btn" class="tab-btn" type="button">Cerrar sesión</button>
   </nav>
@@ -45,8 +45,15 @@
         <input type="text" id="new-ordernum" placeholder="Ej: 13">
         <p id="order-dup-warning" class="hint" style="display:none; color:var(--danger);"></p>
       </div>
-      <div class="field" data-field="location">
-        <label for="new-location">Ubicación de entrega (dejar vacío si retira en el local)</label>
+      <div class="field">
+        <label>Tipo de envío</label>
+        <div style="display:flex; gap:8px;">
+          <button type="button" id="delivery-type-pickup-btn" class="small">Retira en el local</button>
+          <button type="button" id="delivery-type-shipping-btn" class="small">Envío</button>
+        </div>
+      </div>
+      <div class="field" id="new-location-field" style="display:none;">
+        <label for="new-location">Ubicación de entrega</label>
         <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
       </div>
       <div class="field" data-field="amount">
@@ -73,35 +80,10 @@
     </section>
   </main>
 
-  <div id="settings-overlay" class="modal-overlay" style="display:none;">
-    <div class="modal-box">
-      <button id="settings-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
-
-      <section>
-        <h2>Personalizar campos del formulario</h2>
-        <p class="hint">Elegí qué campos mostrar y cuáles son obligatorios al cargar un pedido nuevo.</p>
-        <div id="field-config-list"></div>
-      </section>
-
-      <section>
-        <h2>Cuenta</h2>
-        <div class="field">
-          <label for="pw-current">Contraseña actual</label>
-          <input type="password" id="pw-current" autocomplete="current-password">
-        </div>
-        <div class="field">
-          <label for="pw-new">Contraseña nueva (mínimo 8 caracteres)</label>
-          <input type="password" id="pw-new" autocomplete="new-password">
-        </div>
-        <button id="pw-btn" type="button" class="primary">Cambiar contraseña</button>
-        <p id="pw-status" class="status"></p>
-      </section>
-    </div>
-  </div>
-
   <script src="/socket.io/socket.io.js"></script>
   <script src="geo.js?v=4"></script>
   <script src="nuevo-pedido.js"></script>
+  <script src="settings.js"></script>
   <script src="logout.js"></script>
 </body>
 </html>

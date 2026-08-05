@@ -1,3 +1,4 @@
+const cashTheadRowEl = document.getElementById('cash-thead-row');
 const cashTbodyEl = document.getElementById('cash-tbody');
 const cashEmptyEl = document.getElementById('cash-empty');
 
@@ -7,27 +8,13 @@ const drivers = new Map(); // driverId -> { name, ... }
 const knownDriverNames = new Map();
 const orders = new Map(); // orderId -> order data (misma fuente que pedidos.html)
 const cashStarts = new Map(); // driverId -> number, sincronizado con el servidor (y con driver.html)
-const gastos = new Map(); // driverId -> number, solo de este navegador (no se sincroniza)
 const driverRows = new Map(); // driverId -> refs a los elementos ya creados, para no recrearlos en cada render
+let formConfig = { paymentMethods: [] };
 
 function driverLabel(id) {
   const d = drivers.get(id);
   if (d) return d.name;
   return knownDriverNames.get(id) || 'delivery desconectado';
-}
-
-function isCash(paymentMethod) {
-  const p = (paymentMethod || '').toLowerCase();
-  return p === '' || p.includes('efectivo') || p === 'retira';
-}
-
-function isTransfer(paymentMethod) {
-  return (paymentMethod || '').toLowerCase().includes('transfer');
-}
-
-function isDebit(paymentMethod) {
-  const p = (paymentMethod || '').toLowerCase();
-  return p.includes('débito') || p.includes('debito');
 }
 
 // Pedidos entregados y todavía no "cerrados" en una rendición anterior — el
@@ -46,10 +33,22 @@ function fmtCell({ count, total }) {
   return `${count} — $${total.toFixed(2)}`;
 }
 
+function renderHeader() {
+  cashTheadRowEl.innerHTML = '';
+  ['Delivery activo'].concat(formConfig.paymentMethods.map((m) => m.name), ['Efectivo cambio dado', 'Total a entregar', '']).forEach((label) => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    cashTheadRowEl.appendChild(th);
+  });
+}
+
 // La fila de cada delivery se crea una sola vez (`ensureRow()`/`driverRows`
 // Map) y se actualiza en su lugar (`updateRow()`) — si se recreara en cada
 // render (como en la versión vieja de esta pantalla), tipear en "Efectivo
-// cambio dado"/"Gastos" perdía el foco en cada tecla.
+// cambio dado" perdía el foco en cada tecla. Como la lista de métodos de pago
+// puede cambiar (se agrega/saca uno desde Ajustes), esa sola ocurre
+// reconstruye todas las filas desde cero (ver form-config:snapshot) — no hace
+// falta optimizar ese caso, es raro comparado con tipear.
 function ensureRow(driverId) {
   const existing = driverRows.get(driverId);
   if (existing) return existing;
@@ -58,6 +57,13 @@ function ensureRow(driverId) {
 
   const tdName = document.createElement('td');
   tr.appendChild(tdName);
+
+  const methodCells = new Map(); // paymentMethodId -> td
+  formConfig.paymentMethods.forEach((m) => {
+    const td = document.createElement('td');
+    methodCells.set(m.id, td);
+    tr.appendChild(td);
+  });
 
   const tdCambio = document.createElement('td');
   const cambioInput = document.createElement('input');
@@ -73,27 +79,6 @@ function ensureRow(driverId) {
   tdCambio.appendChild(cambioInput);
   tr.appendChild(tdCambio);
 
-  const tdEfectivo = document.createElement('td');
-  tr.appendChild(tdEfectivo);
-
-  const tdTransferencia = document.createElement('td');
-  tr.appendChild(tdTransferencia);
-
-  const tdDebito = document.createElement('td');
-  tr.appendChild(tdDebito);
-
-  const tdGastos = document.createElement('td');
-  const gastosInput = document.createElement('input');
-  gastosInput.type = 'text';
-  gastosInput.placeholder = '$ 0,00';
-  gastosInput.style.width = '120px';
-  gastosInput.addEventListener('input', () => {
-    gastos.set(driverId, Geo.parseAmount(gastosInput.value) || 0);
-    updateRow(driverId);
-  });
-  tdGastos.appendChild(gastosInput);
-  tr.appendChild(tdGastos);
-
   const tdTotal = document.createElement('td');
   const totalStrong = document.createElement('strong');
   tdTotal.appendChild(totalStrong);
@@ -107,7 +92,6 @@ function ensureRow(driverId) {
   clearBtn.addEventListener('click', () => {
     socket.emit('driver:clear-log', { driverId });
     socket.emit('driver:cash-start', { driverId, amount: 0 });
-    gastos.delete(driverId);
     updateRow(driverId);
   });
   tdActions.appendChild(clearBtn);
@@ -118,7 +102,7 @@ function ensureRow(driverId) {
   // de eso `insertAdjacentElement` no tendría dónde insertar el botón.
   MoneyCounter.attach(cambioInput);
 
-  const refs = { tr, tdName, cambioInput, tdEfectivo, tdTransferencia, tdDebito, gastosInput, totalStrong };
+  const refs = { tr, tdName, methodCells, cambioInput, totalStrong };
   driverRows.set(driverId, refs);
   return refs;
 }
@@ -126,21 +110,21 @@ function ensureRow(driverId) {
 function updateRow(driverId) {
   const refs = ensureRow(driverId);
   const log = pendingDeliveries(driverId);
-  const cash = sumBy(log, (e) => isCash(e.paymentMethod));
-  const transfer = sumBy(log, (e) => isTransfer(e.paymentMethod));
-  const debit = sumBy(log, (e) => isDebit(e.paymentMethod));
   const cashStart = cashStarts.get(driverId) || 0;
-  const gasto = gastos.get(driverId) || 0;
-  const debe = cash.total + cashStart - gasto;
+  let cashMethodsTotal = 0;
 
   refs.tdName.textContent = `${driverLabel(driverId)} (${log.length} sin rendir)`;
-  refs.tdEfectivo.textContent = fmtCell(cash);
-  refs.tdTransferencia.textContent = fmtCell(transfer);
-  refs.tdDebito.textContent = fmtCell(debit);
+  formConfig.paymentMethods.forEach((m) => {
+    const cell = sumBy(log, (e) => e.paymentMethod === m.name);
+    const td = refs.methodCells.get(m.id);
+    if (td) td.textContent = fmtCell(cell);
+    if (m.isCash) cashMethodsTotal += cell.total;
+  });
+
+  const debe = cashMethodsTotal + cashStart;
   refs.totalStrong.textContent = `$${debe.toFixed(2)}`;
   // No pisar lo que se está tipeando ahora mismo (por ej. un eco del propio cambio recién emitido).
   if (document.activeElement !== refs.cambioInput) refs.cambioInput.value = cashStart || '';
-  if (document.activeElement !== refs.gastosInput) refs.gastosInput.value = gasto || '';
 }
 
 function renderCashList() {
@@ -179,3 +163,15 @@ socket.on('order:remove', ({ id }) => { orders.delete(id); renderCashList(); });
 
 socket.on('cash-starts:snapshot', (list) => { list.forEach(({ driverId, amount }) => cashStarts.set(driverId, amount)); renderCashList(); });
 socket.on('driver:cash-start', ({ driverId, amount }) => { cashStarts.set(driverId, amount); if (driverRows.has(driverId)) updateRow(driverId); });
+
+socket.on('form-config:snapshot', (cfg) => {
+  formConfig = cfg || { paymentMethods: [] };
+  if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
+  renderHeader();
+  // La lista de métodos pudo cambiar (se agregó/sacó uno) — las filas ya
+  // creadas tienen columnas fijas armadas para la lista vieja, así que se
+  // reconstruyen todas.
+  driverRows.forEach((refs) => refs.tr.remove());
+  driverRows.clear();
+  renderCashList();
+});

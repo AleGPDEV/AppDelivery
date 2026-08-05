@@ -46,6 +46,12 @@ function renderDayStatus() {
     startDayBtn.disabled = true;
     endDayBtn.disabled = false;
     cashFieldsEl.style.display = '';
+    // Repuebla el efectivo inicial ya guardado — salvo que el input tenga el
+    // foco ahora mismo, para no pisar lo que se está tipeando (mismo guard
+    // que usa caja.js con "Efectivo cambio dado").
+    if (document.activeElement !== cashStartEl && currentDay.cash_start != null) {
+      cashStartEl.value = currentDay.cash_start.toFixed(2);
+    }
   } else {
     dayStatusEl.textContent = 'Ningún día abierto ahora mismo.';
     startDayBtn.disabled = false;
@@ -53,6 +59,27 @@ function renderDayStatus() {
     cashFieldsEl.style.display = 'none';
   }
 }
+
+// Antes el efectivo inicial solo viajaba al servidor cuando se tocaba
+// "Finalizar día" — si se tipeaba y se cambiaba de pantalla antes de eso, se
+// perdía. Ahora se guarda solo (con un debounce chico, no hace falta a cada
+// tecla) apenas hay un día abierto.
+let cashStartSaveTimer = null;
+cashStartEl.addEventListener('input', () => {
+  if (!currentDay) return;
+  clearTimeout(cashStartSaveTimer);
+  cashStartSaveTimer = setTimeout(async () => {
+    const cashStart = Geo.parseAmount(cashStartEl.value);
+    if (cashStart == null) return;
+    try {
+      const { day } = await api('/api/business-day/cash-start', { method: 'POST', body: JSON.stringify({ cashStart }) });
+      currentDay = day;
+    } catch (e) {
+      dayStatusMsgEl.textContent = e.message;
+      dayStatusMsgEl.className = 'status error';
+    }
+  }, 600);
+});
 
 function renderDailyChart(days) {
   dailyChartEl.innerHTML = '';

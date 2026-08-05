@@ -225,11 +225,9 @@ function customFieldInputId(key) {
 }
 
 function renderCheckoutFields() {
-  const phoneField = document.querySelector('[data-field="phone"]');
+  // El celular siempre se pide (es fijo, ya no depende de formConfig).
   const nameField = document.querySelector('[data-field="name"]');
-  const phoneCfg = formConfig.phone || { visible: true };
   const nameCfg = formConfig.name || { visible: true };
-  if (phoneField) phoneField.style.display = phoneCfg.visible === false ? 'none' : '';
   if (nameField) nameField.style.display = nameCfg.visible === false ? 'none' : '';
 
   checkoutCustomFieldsEl.innerHTML = '';
@@ -271,10 +269,12 @@ checkoutSubmitBtn.addEventListener('click', async () => {
     return;
   }
 
+  // Celular y tipo de envío (retira/envía) son siempre obligatorios — ya no
+  // dependen de formConfig.
   const missing = [];
-  if (formConfig.phone?.visible !== false && formConfig.phone?.required && !checkoutPhoneEl.value.trim()) missing.push('Celular');
+  if (!checkoutPhoneEl.value.trim()) missing.push('Celular');
   if (formConfig.name?.visible !== false && formConfig.name?.required && !checkoutNameEl.value.trim()) missing.push('Nombre');
-  if (!checkoutPickupEl.checked && formConfig.location?.required && !checkoutLocationEl.value.trim()) missing.push('Dirección de entrega');
+  if (!checkoutPickupEl.checked && !checkoutLocationEl.value.trim()) missing.push('Dirección de entrega');
   const custom = {};
   (formConfig.customFields || []).forEach((f) => {
     if (f.visible === false) return;

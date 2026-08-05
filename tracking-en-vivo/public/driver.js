@@ -140,7 +140,7 @@ function buildOrderPopup(api, o) {
   paymentRow.style.gap = '4px';
   paymentRow.style.marginTop = '6px';
   paymentRow.style.flexWrap = 'wrap';
-  ['Efectivo', 'Transferencia', 'Débito'].forEach((method) => {
+  paymentMethodNames().forEach((method) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'danger small';
@@ -227,12 +227,22 @@ let myRouteOrder = [];
 let myCashStart = 0; // lo carga el admin desde caja.html — acá es de solo lectura
 // Solo se usa acá para saber qué campos personalizados mostrar en el popup
 // de cada pedido en el mapa (`showToDriver`, ver buildOrderPopup).
-let formConfig = { customFields: [] };
-socket.on('form-config:snapshot', (cfg) => { formConfig = cfg || { customFields: [] }; });
+let formConfig = { customFields: [], paymentMethods: [] };
+socket.on('form-config:snapshot', (cfg) => {
+  formConfig = cfg || { customFields: [], paymentMethods: [] };
+  if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
+  renderOrders();
+  renderCashSummary();
+});
+
+function paymentMethodNames() {
+  return formConfig.paymentMethods.map((m) => m.name);
+}
 
 function isCashPayment(paymentMethod) {
-  const p = (paymentMethod || '').toLowerCase();
-  return p === '' || p.includes('efectivo') || p === 'retira';
+  if (!paymentMethod) return false;
+  const method = formConfig.paymentMethods.find((m) => m.name === paymentMethod);
+  return !!(method && method.isCash);
 }
 
 // Se suma solo lo que va entregando en efectivo hasta ahora, sobre el
@@ -303,7 +313,7 @@ function renderOrders() {
     btnRow.style.gap = '4px';
     btnRow.style.flexWrap = 'wrap';
 
-    ['Efectivo', 'Transferencia', 'Débito'].forEach((method) => {
+    paymentMethodNames().forEach((method) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'danger small';

@@ -41,7 +41,7 @@ function verifyToken(token) {
 // login.html itself stay public. The real security boundary is the socket
 // handler checks below (socket.data.isAdmin), this is just so an anonymous
 // visitor lands on the login screen instead of a blank admin page.
-const PROTECTED_PAGES = ['/nuevo-pedido.html', '/pedidos.html', '/dashboard.html', '/caja.html', '/analiticas.html', '/catalogo.html'];
+const PROTECTED_PAGES = ['/nuevo-pedido.html', '/pedidos.html', '/dashboard.html', '/caja.html', '/analiticas.html', '/catalogo.html', '/proveedores.html'];
 
 app.use((req, res, next) => {
   if (!AUTH_DISABLED && PROTECTED_PAGES.includes(req.path) && !verifyToken(getToken(req))) {
@@ -122,14 +122,34 @@ const WEB_ORDER_COOLDOWN_MS = 15000;
 const categories = new Map();
 // productId -> { categoryId, name, description, price, imageUrl, sortOrder, visible }
 const products = new Map();
+// expenseId -> { description, amount, paymentMethodId, paymentMethodName,
+// paymentMethodIsCash, businessDayId, createdAt } — pagos a proveedores
+// (reemplaza al viejo "Gastos" de caja.js, que era solo del navegador y
+// nunca llegaba al servidor). `paymentMethodName`/`paymentMethodIsCash`
+// quedan "congelados" al cargar el gasto, igual que `items.name`/`price` en
+// los pedidos, para que el cierre de día no cambie si después se edita o
+// borra ese método de pago.
+const expenses = new Map();
 
+// `phone` y "tipo de envío" (retira/envía) ya no son casilleros de acá — son
+// obligatorios siempre, fijos en el código que arma el pedido (ver
+// order:add/order:web-add más abajo y nuevo-pedido.js/pedido-cliente.js).
+// `name`/`orderNumber`/`amount` se mantienen con su comportamiento de
+// siempre, pero ya no aparecen como opciones "personalizables" en Ajustes.
 let formConfig = {
-  phone: { visible: true, required: true },
   name: { visible: true, required: false },
   orderNumber: { visible: true, required: true },
-  location: { visible: true, required: false },
   amount: { visible: true, required: true },
-  // Campos que el admin agrega él mismo (además de los 5 de arriba):
+  // Lo único realmente agregable/editable desde Ajustes: la lista de formas
+  // en que puede salir/entrar plata. `isCash` marca si ese método representa
+  // efectivo físico en la caja (afecta el cálculo de "Total a entregar" y el
+  // cierre de día) — Efectivo por defecto es el único marcado así.
+  paymentMethods: [
+    { id: 'efectivo', name: 'Efectivo', isCash: true },
+    { id: 'transferencia', name: 'Transferencia', isCash: false },
+    { id: 'debito', name: 'Débito', isCash: false },
+  ],
+  // Campos que el admin agrega él mismo (además de los de arriba):
   // [{ key, label, visible, required }], en el orden en que los creó.
   customFields: [],
 };
@@ -207,6 +227,52 @@ function persistProduct(id, p) {
   supabase.from('products').upsert(productRow(id, p)).then(({ error }) => {
     if (error) console.error('Error guardando producto en Supabase:', error.message);
   });
+}
+
+// Solo se muestran/mandan los gastos del día abierto actual — el historial
+// completo se conserva igual en Supabase por si algún día hace falta
+// consultarlo, pero no hay pantalla para eso todavía.
+function expenseList() {
+  return Array.from(expenses.entries())
+    .filter(([, e]) => e.businessDayId === (openBusinessDay && openBusinessDay.id))
+    .map(([id, e]) => ({ id, ...e }))
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+function expenseRow(id, e) {
+  return {
+    id,
+    description: e.description,
+    amount: e.amount,
+    payment_method_id: e.paymentMethodId || null,
+    payment_method_name: e.paymentMethodName || null,
+    payment_method_is_cash: !!e.paymentMethodIsCash,
+    business_day_id: e.businessDayId || null,
+    created_at: new Date(e.createdAt).toISOString(),
+  };
+}
+
+function persistExpense(id, e) {
+  supabase.from('expenses').upsert(expenseRow(id, e)).then(({ error }) => {
+    if (error) console.error('Error guardando gasto en Supabase:', error.message);
+  });
+}
+
+async function loadExpenses() {
+  const { data, error } = await supabase.from('expenses').select('*');
+  if (error) { console.error('Error cargando gastos de Supabase:', error.message); return; }
+  data.forEach((row) => {
+    expenses.set(row.id, {
+      description: row.description,
+      amount: row.amount,
+      paymentMethodId: row.payment_method_id,
+      paymentMethodName: row.payment_method_name,
+      paymentMethodIsCash: row.payment_method_is_cash,
+      businessDayId: row.business_day_id,
+      createdAt: new Date(row.created_at).getTime(),
+    });
+  });
+  console.log(`Gastos cargados desde Supabase: ${expenses.size}`);
 }
 
 async function loadCatalog() {
@@ -325,6 +391,15 @@ async function loadFormConfig() {
   // Config guardada antes de que existieran los campos personalizados no
   // tiene esta clave — se completa acá en vez de forzar otra migración.
   if (!Array.isArray(formConfig.customFields)) formConfig.customFields = [];
+  // Ídem para configuraciones guardadas antes de que existiera la lista de
+  // métodos de pago.
+  if (!Array.isArray(formConfig.paymentMethods)) {
+    formConfig.paymentMethods = [
+      { id: 'efectivo', name: 'Efectivo', isCash: true },
+      { id: 'transferencia', name: 'Transferencia', isCash: false },
+      { id: 'debito', name: 'Débito', isCash: false },
+    ];
+  }
 }
 
 async function bootstrapAdmin() {
@@ -357,9 +432,14 @@ async function loadOpenBusinessDay() {
   openBusinessDay = data || null;
 }
 
+// Antes esto adivinaba por substring ("efectivo" en el texto); ahora que los
+// métodos de pago son una lista configurable, se busca el match exacto y se
+// usa su flag `isCash`. Un pedido sin forma de pago asignada todavía (recién
+// creado, no entregado) no cuenta como efectivo ni como no-efectivo.
 function isCashPayment(paymentMethod) {
-  const p = (paymentMethod || '').toLowerCase();
-  return p === '' || p.includes('efectivo') || p === 'retira';
+  if (!paymentMethod) return false;
+  const method = formConfig.paymentMethods.find((m) => m.name === paymentMethod);
+  return !!(method && method.isCash);
 }
 
 app.post('/api/business-day/start', requireAuth, async (req, res) => {
@@ -368,6 +448,24 @@ app.post('/api/business-day/start', requireAuth, async (req, res) => {
   const { data, error } = await supabase.from('business_days')
     .insert({ date: today, started_at: new Date().toISOString() })
     .select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  openBusinessDay = data;
+  io.emit('business-day:status', { day: openBusinessDay });
+  res.json({ day: data });
+});
+
+// Antes el efectivo inicial solo se guardaba junto con el final, al cerrar el
+// día — si el admin lo tipeaba y cambiaba de pantalla antes de cerrar, se
+// perdía (nunca había viajado a ningún lado). Ahora se guarda apenas se
+// carga, en la fila ya abierta, y se re-manda por business-day:status para
+// que cualquier pantalla conectada lo vea igual.
+app.post('/api/business-day/cash-start', requireAuth, async (req, res) => {
+  if (!openBusinessDay) return res.status(400).json({ error: 'No hay ningún día abierto.' });
+  const cashStart = Number(req.body?.cashStart);
+  if (!Number.isFinite(cashStart)) return res.status(400).json({ error: 'Falta el efectivo inicial.' });
+  const { data, error } = await supabase.from('business_days')
+    .update({ cash_start: cashStart })
+    .eq('id', openBusinessDay.id).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   openBusinessDay = data;
   io.emit('business-day:status', { day: openBusinessDay });
@@ -409,7 +507,14 @@ app.post('/api/business-day/end', requireAuth, async (req, res) => {
     io.emit('order:update', { id, ...o });
   });
 
-  const cashExpected = cashStart + cashFromOrders;
+  // Proveedores pagados en efectivo salen de la misma caja física — se restan
+  // del efectivo esperado, igual que antes hacía "Gastos" en caja.js (pero
+  // ahora sí queda guardado y a nivel de todo el negocio, no por delivery).
+  const cashExpensesTotal = Array.from(expenses.values())
+    .filter((e) => e.businessDayId === openBusinessDay.id && e.paymentMethodIsCash)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const cashExpected = cashStart + cashFromOrders - cashExpensesTotal;
   const { data, error } = await supabase.from('business_days')
     .update({
       ended_at: new Date(now).toISOString(),
@@ -497,6 +602,10 @@ app.post('/api/admin/reset-today', requireAuth, async (req, res) => {
 io.use((socket, next) => {
   const cookies = cookie.parse(socket.handshake.headers.cookie || '');
   socket.data.isAdmin = AUTH_DISABLED || !!verifyToken(cookies[COOKIE_NAME]);
+  // Los gastos (Proveedores) son plata — a diferencia del catálogo/formConfig
+  // no le pueden llegar a un socket público (pedido-cliente.html). Se junta a
+  // los admins en una sala para poder difundir solo ahí.
+  if (socket.data.isAdmin) socket.join('admin');
   next();
 });
 
@@ -508,6 +617,7 @@ io.on('connection', (socket) => {
   socket.emit('business-day:status', { day: openBusinessDay });
   socket.emit('cash-starts:snapshot', cashStartList());
   socket.emit('catalog:snapshot', catalogSnapshot());
+  if (socket.data.isAdmin) socket.emit('expenses:snapshot', expenseList());
 
   socket.on('driver:update', ({ id, name, lat, lng }) => {
     if (!id || typeof lat !== 'number' || typeof lng !== 'number') return;
@@ -529,9 +639,13 @@ io.on('connection', (socket) => {
   // opcionales: un pedido que retira en el local no tiene ubicación.
   // `id` lo genera el cliente (igual que el driverId) para poder asignarlo
   // en el mismo tick sin esperar una confirmación del servidor.
-  socket.on('order:add', ({ id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod, custom }) => {
+  socket.on('order:add', ({ id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod, custom, pickup }) => {
     if (!socket.data.isAdmin || !id || !openBusinessDay) return;
     const hasLocation = typeof lat === 'number' && typeof lng === 'number';
+    // Tipo de envío obligatorio: o retira (pickup) o tiene que traer una
+    // ubicación resuelta — no queda una tercera opción de "ninguna de las
+    // dos". Teléfono también obligatorio siempre, ya no es configurable.
+    if (!phone || !(pickup || hasLocation)) return;
     const entry = {
       seq: nextSeq++,
       orderNumber: (orderNumber || '').toString().slice(0, 20),
@@ -730,6 +844,38 @@ io.on('connection', (socket) => {
     io.emit('catalog:snapshot', catalogSnapshot());
   });
 
+  // Proveedores: un pago que sale de la caja del negocio (no de un delivery
+  // en particular). Solo tiene sentido con el día abierto, para poder
+  // asociarlo y restarlo del efectivo esperado al cerrar (ver
+  // /api/business-day/end). `paymentMethodName`/`isCash` se copian de la
+  // config actual y quedan fijos en el gasto (ver comentario en el Map).
+  socket.on('expense:add', ({ description, amount, paymentMethodId }) => {
+    if (!socket.data.isAdmin || !description || typeof amount !== 'number' || !openBusinessDay) return;
+    const method = formConfig.paymentMethods.find((m) => m.id === paymentMethodId);
+    const id = crypto.randomUUID();
+    const entry = {
+      description: description.toString().slice(0, 200),
+      amount,
+      paymentMethodId: method ? method.id : null,
+      paymentMethodName: method ? method.name : null,
+      paymentMethodIsCash: method ? method.isCash : false,
+      businessDayId: openBusinessDay.id,
+      createdAt: Date.now(),
+    };
+    expenses.set(id, entry);
+    persistExpense(id, entry);
+    io.to('admin').emit('expenses:snapshot', expenseList());
+  });
+
+  socket.on('expense:remove', ({ id }) => {
+    if (!socket.data.isAdmin || !id) return;
+    expenses.delete(id);
+    supabase.from('expenses').delete().eq('id', id).then(({ error }) => {
+      if (error) console.error('Error borrando gasto en Supabase:', error.message);
+    });
+    io.to('admin').emit('expenses:snapshot', expenseList());
+  });
+
   // Pedido enviado desde pedido-cliente.html — socket público, sin
   // socket.data.isAdmin. A diferencia de order:add (que confía en un admin
   // ya logueado), acá no se confía en nada de lo que mande el cliente salvo
@@ -763,10 +909,17 @@ io.on('connection', (socket) => {
       amount += p.price * qty;
     }
 
+    // Teléfono y tipo de envío (retira/envía) son siempre obligatorios, ya no
+    // dependen de formConfig — igual que en order:add (lado admin). Antes acá
+    // se chequeaba `payload.location` (un campo que el cliente nunca manda —
+    // la dirección ya viaja resuelta en lat/lng), así que en la práctica
+    // nunca bloqueaba nada; ahora sí valida de verdad que haya una ubicación
+    // resuelta cuando no es retiro.
+    const hasLocation = typeof payload?.lat === 'number' && typeof payload?.lng === 'number';
     const missing = [];
-    if (formConfig.phone?.visible !== false && formConfig.phone?.required && !payload?.phone) missing.push('Celular');
+    if (!payload?.phone) missing.push('Celular');
     if (formConfig.name?.visible !== false && formConfig.name?.required && !payload?.name) missing.push('Nombre');
-    if (formConfig.location?.visible !== false && formConfig.location?.required && !payload?.pickup && !payload?.location) missing.push('Ubicación de entrega');
+    if (!payload?.pickup && !hasLocation) missing.push('Ubicación de entrega');
     (formConfig.customFields || []).forEach((f) => {
       if (f.visible !== false && f.required && !(payload?.custom && payload.custom[f.key])) missing.push(f.label);
     });
@@ -774,7 +927,6 @@ io.on('connection', (socket) => {
 
     const id = crypto.randomUUID();
     const seq = nextSeq++;
-    const hasLocation = typeof payload?.lat === 'number' && typeof payload?.lng === 'number';
     const entry = {
       seq,
       orderNumber: `WEB-${seq}`,
@@ -822,6 +974,7 @@ async function start() {
   await loadOrders();
   await loadOpenBusinessDay();
   await loadCatalog();
+  await loadExpenses();
   server.listen(PORT, () => {
     console.log(`Tracking en vivo corriendo en http://localhost:${PORT}`);
     console.log(`Login:         http://localhost:${PORT}/login.html`);
@@ -832,6 +985,7 @@ async function start() {
     console.log(`Rendición:     http://localhost:${PORT}/caja.html`);
     console.log(`Analíticas:    http://localhost:${PORT}/analiticas.html`);
     console.log(`Catálogo:      http://localhost:${PORT}/catalogo.html`);
+    console.log(`Proveedores:   http://localhost:${PORT}/proveedores.html`);
     console.log(`Pedido online: http://localhost:${PORT}/pedido-cliente.html`);
   });
 }
