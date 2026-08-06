@@ -76,6 +76,15 @@
     </section>
 
     <section class="panel">
+      <h2>Exportar</h2>
+      <p class="hint">Para contabilidad, o como respaldo manual además de lo que guarda Supabase — ver "Backup y recuperación" en la documentación.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <a href="/api/export/orders.csv" class="primary" style="width:auto; padding:14px 20px; border-radius:var(--radius-md);">Descargar pedidos (CSV)</a>
+        <a href="/api/export/business-days.csv" class="primary" style="width:auto; padding:14px 20px; border-radius:var(--radius-md);">Descargar días comerciales (CSV)</a>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>Zona de pruebas</h2>
       <p class="hint"><strong>Borra TODO</strong>: todos los pedidos (activos y ya archivados) y todos los días comerciales (abiertos y ya cerrados, con su historial). Preventivo para pruebas — no queda nada, ni siquiera el historial real, así que solo tocalo si estás probando la app y querés arrancar de cero.</p>
       <button id="reset-today-btn" type="button" class="danger" style="width:auto;">Borrar TODO (pedidos y días)</button>

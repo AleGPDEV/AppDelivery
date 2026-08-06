@@ -108,10 +108,27 @@ let nextSeq = 1;
 const routes = new Map();
 // driverId -> number — el efectivo con el que salió ese delivery, lo carga el
 // admin desde caja.html y driver.html solo lo muestra (de solo lectura ahí).
-// En memoria nomás, como drivers/routes: es un dato por recorrido, no un
-// registro histórico (el "Debe entregar" ya queda fijo en business_days al
-// cerrar el día).
+// Cacheado en memoria (como drivers/routes) pero SÍ persistido en Supabase
+// (tabla driver_cash_starts) — antes era solo memoria, y un reinicio del
+// server (Render duerme el free tier tras 15 min sin tráfico) lo borraba en
+// silencio a mitad de turno sin que nadie se diera cuenta. No es un
+// registro histórico de verdad (el "Debe entregar" ya queda fijo en
+// business_days al cerrar el día) — es más un "no perder lo que ya se
+// cargó hoy" ante un restart.
 const driverCashStarts = new Map();
+
+function persistDriverCashStart(driverId, amount) {
+  supabase.from('driver_cash_starts').upsert({ driver_id: driverId, amount, updated_at: new Date().toISOString() }).then(({ error }) => {
+    if (error) console.error('Error guardando efectivo inicial del delivery en Supabase:', error.message);
+  });
+}
+
+async function loadDriverCashStarts() {
+  const { data, error } = await supabase.from('driver_cash_starts').select('driver_id, amount');
+  if (error) { console.error('Error cargando efectivo inicial de deliverys de Supabase:', error.message); return; }
+  data.forEach((row) => driverCashStarts.set(row.driver_id, row.amount));
+  console.log(`Efectivo inicial de deliverys cargado desde Supabase: ${driverCashStarts.size}`);
+}
 // socket.id -> timestamp del último pedido web aceptado, para frenar spam
 // sin agregar ninguna librería de rate-limiting — mismo criterio "resolvelo
 // con un Map" que el resto de este archivo.
@@ -390,16 +407,20 @@ async function loadOrders() {
   console.log(`Pedidos cargados desde Supabase: ${orders.size}`);
 }
 
-async function loadFormConfig() {
-  const { data, error } = await supabase.from('form_config').select('fields').eq('id', 1).maybeSingle();
-  if (!error && data && data.fields) formConfig = data.fields;
+// Completa los defaults de una config parcial/vieja (guardada antes de que
+// existiera tal o cual clave) — función pura, sin tocar el `formConfig` del
+// módulo, así se puede testear con cualquier objeto de entrada sin depender
+// de Supabase ni de estado global. `loadFormConfig()` es la única que la usa
+// contra el `formConfig` real.
+function normalizeFormConfig(fields) {
+  const cfg = fields && typeof fields === 'object' ? { ...fields } : {};
   // Config guardada antes de que existieran los campos personalizados no
-  // tiene esta clave — se completa acá en vez de forzar otra migración.
-  if (!Array.isArray(formConfig.customFields)) formConfig.customFields = [];
+  // tiene esta clave.
+  if (!Array.isArray(cfg.customFields)) cfg.customFields = [];
   // Ídem para configuraciones guardadas antes de que existiera la lista de
   // métodos de pago.
-  if (!Array.isArray(formConfig.paymentMethods)) {
-    formConfig.paymentMethods = [
+  if (!Array.isArray(cfg.paymentMethods)) {
+    cfg.paymentMethods = [
       { id: 'efectivo', name: 'Efectivo', isCash: true },
       { id: 'transferencia', name: 'Transferencia', isCash: false },
       { id: 'debito', name: 'Débito', isCash: false },
@@ -407,10 +428,19 @@ async function loadFormConfig() {
   }
   // Ídem para phone/name/orderNumber/amount — volvieron a ser personalizables,
   // así que necesitan un default sensato si la config guardada no los trae.
-  if (!formConfig.phone) formConfig.phone = { visible: true, required: true };
-  if (!formConfig.name) formConfig.name = { visible: true, required: false };
-  if (!formConfig.orderNumber) formConfig.orderNumber = { visible: true, required: true };
-  if (!formConfig.amount) formConfig.amount = { visible: true, required: true };
+  // Este es exactamente el bug que hubo que arreglar a mano en Supabase una
+  // vez (ver DOCUMENTACION.md 3.4) — de ahí que esté cubierto por un test.
+  if (!cfg.phone) cfg.phone = { visible: true, required: true };
+  if (!cfg.name) cfg.name = { visible: true, required: false };
+  if (!cfg.orderNumber) cfg.orderNumber = { visible: true, required: true };
+  if (!cfg.amount) cfg.amount = { visible: true, required: true };
+  return cfg;
+}
+
+async function loadFormConfig() {
+  const { data, error } = await supabase.from('form_config').select('fields').eq('id', 1).maybeSingle();
+  if (!error && data && data.fields) formConfig = data.fields;
+  formConfig = normalizeFormConfig(formConfig);
 }
 
 async function bootstrapAdmin() {
@@ -447,9 +477,12 @@ async function loadOpenBusinessDay() {
 // métodos de pago son una lista configurable, se busca el match exacto y se
 // usa su flag `isCash`. Un pedido sin forma de pago asignada todavía (recién
 // creado, no entregado) no cuenta como efectivo ni como no-efectivo.
-function isCashPayment(paymentMethod) {
+// `paymentMethods` es un parámetro explícito (default: la config actual) en
+// vez de leer el `formConfig` del módulo directamente, para poder testear
+// esta función sola sin depender de estado global.
+function isCashPayment(paymentMethod, paymentMethods = formConfig.paymentMethods) {
   if (!paymentMethod) return false;
-  const method = formConfig.paymentMethods.find((m) => m.name === paymentMethod);
+  const method = (paymentMethods || []).find((m) => m.name === paymentMethod);
   return !!(method && method.isCash);
 }
 
@@ -561,6 +594,46 @@ app.get('/api/business-day/:id/orders', requireAuth, async (req, res) => {
   res.json({ orders: data || [] });
 });
 
+// Exportar a CSV, para contabilidad o como respaldo manual además de lo que
+// Supabase guarde por su cuenta (ver DOCUMENTACION.md, sección de backup).
+// Sin librería nueva — un CSV es texto simple, esto alcanza: comillas dobles
+// alrededor de cualquier campo con coma/comilla/salto de línea, y las
+// comillas internas se duplican (regla estándar de CSV, RFC 4180).
+function csvCell(value) {
+  const s = value == null ? '' : String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function toCsv(headers, rows) {
+  const lines = [headers.map(csvCell).join(',')];
+  rows.forEach((row) => lines.push(row.map(csvCell).join(',')));
+  return lines.join('\r\n');
+}
+
+app.get('/api/export/orders.csv', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('orders').select('*').order('seq', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  const headers = ['Ticket', 'Nº de pedido', 'Nombre', 'Teléfono', 'Monto', 'Método de pago', 'Estado', 'Origen', 'Actualizado'];
+  const rows = (data || []).map((o) => [
+    o.seq, o.order_number, o.name, o.phone, o.amount, o.payment_method, o.status,
+    o.source === 'web' ? 'Web' : 'Admin', o.updated_at,
+  ]);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="pedidos.csv"');
+  res.send(toCsv(headers, rows));
+});
+
+app.get('/api/export/business-days.csv', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('business_days').select('*').order('date', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const headers = ['Fecha', 'Iniciado', 'Finalizado', 'Pedidos', 'Ingresos', 'Efectivo inicial', 'Efectivo esperado', 'Efectivo contado'];
+  const rows = (data || []).map((d) => [
+    d.date, d.started_at, d.ended_at, d.total_orders, d.total_revenue, d.cash_start, d.cash_expected, d.cash_end,
+  ]);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="dias-comerciales.csv"');
+  res.send(toCsv(headers, rows));
+});
+
 // Borra ABSOLUTAMENTE TODOS los pedidos (activos y ya archivados) y TODOS
 // los business_days (abiertos y ya cerrados) — a pedido explícito, "esto es
 // preventivo para pruebas". A diferencia de antes, esto SÍ toca el
@@ -606,6 +679,8 @@ app.post('/api/admin/reset-today', requireAuth, async (req, res) => {
 
   driverCashStarts.forEach((amount, driverId) => io.emit('driver:cash-start', { driverId, amount: 0 }));
   driverCashStarts.clear();
+  const { error: cashStartsError } = await supabase.from('driver_cash_starts').delete().not('driver_id', 'is', null);
+  if (cashStartsError) console.error('Error borrando efectivo inicial de deliverys en Supabase:', cashStartsError.message);
 
   res.json({ ok: true, deletedOrders: allOrderIds.length });
 });
@@ -781,6 +856,7 @@ io.on('connection', (socket) => {
   socket.on('driver:cash-start', ({ driverId, amount }) => {
     if (!socket.data.isAdmin || !driverId || typeof amount !== 'number') return;
     driverCashStarts.set(driverId, amount);
+    persistDriverCashStart(driverId, amount);
     io.emit('driver:cash-start', { driverId, amount });
   });
 
@@ -968,6 +1044,11 @@ io.on('connection', (socket) => {
   });
 });
 
+// `.unref()`: en producción esto igual corre cada 30s mientras el server
+// esté levantado (lo que lo mantiene vivo es `server.listen()`, no este
+// timer) — pero si alguien hace `require('./server.js')` sin escuchar en
+// ningún puerto (los tests), este timer solo no debe impedir que el
+// proceso termine solo.
 setInterval(() => {
   const now = Date.now();
   for (const [id, d] of drivers) {
@@ -978,7 +1059,7 @@ setInterval(() => {
       io.emit('route:remove', { driverId: id });
     }
   }
-}, 30000);
+}, 30000).unref();
 
 const PORT = process.env.PORT || 3000;
 
@@ -989,6 +1070,7 @@ async function start() {
   await loadOpenBusinessDay();
   await loadCatalog();
   await loadExpenses();
+  await loadDriverCashStarts();
   server.listen(PORT, () => {
     console.log(`Tracking en vivo corriendo en http://localhost:${PORT}`);
     console.log(`Login:         http://localhost:${PORT}/login.html`);
@@ -1004,4 +1086,22 @@ async function start() {
   });
 }
 
-start();
+// `require.main === module` es falso cuando este archivo se importa desde
+// otro lado (los tests, `test/server.test.js`) en vez de ejecutarse
+// directo (`node server.js`) — así los tests pueden importar las funciones
+// puras de abajo sin levantar el servidor real ni escuchar en ningún puerto.
+if (require.main === module) {
+  start();
+}
+
+module.exports = {
+  sanitizeCustom,
+  isCashPayment,
+  normalizeFormConfig,
+  orderRow,
+  categoryRow,
+  productRow,
+  expenseRow,
+  csvCell,
+  toCsv,
+};

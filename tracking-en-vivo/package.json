@@ -4,7 +4,8 @@
   "private": true,
   "description": "Panel de ubicacion en vivo de los deliverys",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.0",

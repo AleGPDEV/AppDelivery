@@ -149,7 +149,7 @@ Antes había que salir a Google Maps para ver dónde quedaban los próximos pedi
 ### Rendición del recorrido (driver.js + caja.js)
 
 El **efectivo inicial** de cada delivery lo carga el **admin** desde `caja.html` (no el delivery) — así el número que hay que rendir al final no depende de lo que el delivery diga que le dieron. Se sincroniza por socket:
-- `driverCashStarts` en `server.js`: `driverId → number`, **en memoria solamente** (como `drivers`/`routes` — es un dato por recorrido, no historial; el total ya queda fijo en `business_days` al cerrar el día). `socket.emit('cash-starts:snapshot', ...)` al conectar; `driver:cash-start` (admin-only, mismo chequeo `socket.data.isAdmin`) lo actualiza y lo re-emite a todos.
+- `driverCashStarts` en `server.js`: `driverId → number`, cacheado en memoria (como `drivers`/`routes`) pero **persistido en Supabase** (tabla `driver_cash_starts`, `driver_id` como clave primaria, `upsert` fire-and-forget vía `persistDriverCashStart()`, cargado al arrancar con `loadDriverCashStarts()`). Antes era solo memoria — como el plan free de Render duerme el server tras 15 min sin tráfico, un reinicio a mitad de turno borraba este valor en silencio, sin que nadie se diera cuenta hasta rendir cuentas. No es un registro histórico de verdad (el total ya queda fijo en `business_days` al cerrar el día) — es más bien "no perder lo ya cargado hoy" ante un restart. `socket.emit('cash-starts:snapshot', ...)` al conectar; `driver:cash-start` (admin-only, mismo chequeo `socket.data.isAdmin`) lo actualiza, lo persiste y lo re-emite a todos. Se limpia (fila borrada de la tabla) en `POST /api/admin/reset-today`.
 - **`caja.js`**: el input "Efectivo cambio dado" de cada fila emite `driver:cash-start` en cada tecla. Importante: los elementos de cada fila (inputs, celdas) se crean **una sola vez** por delivery (`ensureRow()`/`driverRows` Map) y se actualizan en su lugar (`updateRow()`) — la versión anterior reconstruía toda la lista en cada cambio, lo que le hacía perder el foco al input en cada tecla tipeada (mismo tipo de bug que el de los `<select>` que se cerraban solos, ver más abajo). `updateRow()` tampoco pisa el valor de un input mientras tiene el foco (evita que el eco del propio cambio recién tipeado lo interrumpa).
 - **Tabla, no tarjetas**: `caja.html` muestra una fila por delivery con **Delivery activo**, una columna **por cada método de pago configurado** (`formConfig.paymentMethods`, armada dinámicamente por `renderHeader()`/`ensureRow()` — agregar un método nuevo en Ajustes le suma una columna sola, sin tocar código), **Efectivo cambio dado** (input), **Total a entregar** y el botón "Cerrar rendición". Cada columna de método muestra `cantidad — $monto` (comparación exacta contra `order.paymentMethod`, ya no por substring); **Total a entregar** solo suma las columnas cuyo método tiene `isCash:true` (`cashStart + esa suma`) — Transferencia/Débito (o lo que sea que el admin haya marcado como no-efectivo) no son plata física que el delivery tenga que devolver. Si la lista de métodos cambia, `caja.js` reconstruye todas las filas desde cero (evento `form-config:snapshot`) — no hace falta optimizar ese caso raro, solo el de tipear.
 - **`driver.html`**: la misma tabla que antes ("Efectivo inicial" / "Entregados en efectivo" / "Debe entregar"), pero el input de "Efectivo inicial" ahora es **`readonly`** — solo lo llena `driver.js` al recibir `cash-starts:snapshot`/`driver:cash-start` para su propio `driverId`. `Debe entregar` se sigue calculando igual (`renderCashSummary()`): filtra `myOrders` por `assignedTo === driverId && status === 'entregado' && !archivedAt`, separa los pagados en efectivo (`isCashPayment()`, ahora busca el método exacto en `formConfig.paymentMethods` en vez de adivinar por substring) y suma. Se "resetea" solo cuando el admin **finaliza el día** (esos pedidos pasan a `archivedAt` y dejan de contar) — para el próximo recorrido el admin carga un efectivo inicial nuevo desde `caja.html`.
@@ -298,6 +298,7 @@ Se probó primero con Nominatim (gratis, sin key) pero tenía errores reales de 
 - Tablas `categories`/`products` y las columnas `orders.source`/`orders.items` (ver 3.3).
 - Bucket de Storage **`product-images`** (Storage → New bucket → Public) — ahí se guardan las fotos de producto.
 - Tabla `expenses` (ver 3.4).
+- Tabla `driver_cash_starts` (ver la sección "Rendición del recorrido").
 
 Repo: `https://github.com/AleGPDEV/AppDelivery` (público).
 
@@ -318,12 +319,37 @@ npm start   # sirve en http://localhost:3000
 
 `.claude/launch.json` ya tiene ambos configurados para preview automático.
 
+### Tests
+
+```bash
+cd tracking-en-vivo
+npm test
+```
+Usa el test runner nativo de Node (`node --test`, `node:test`/`node:assert`) — sin dependencia nueva. Son **tests de las funciones puras de `server.js`** (`test/server.test.js`): `sanitizeCustom`, `isCashPayment`, `normalizeFormConfig`, `orderRow`/`categoryRow`/`productRow`/`expenseRow`, `csvCell`/`toCsv`. No levantan el servidor real ni pegan a Supabase — `server.js` exporta estas funciones vía `module.exports` al final del archivo, y `start()` (que sí conecta con todo) está guardado detrás de `if (require.main === module)`, así que solo se ejecuta cuando el archivo corre directo (`node server.js`/`npm start`), no cuando un test lo importa con `require()`. El `setInterval` que barre deliverys inactivos también tiene `.unref()` por la misma razón — si no, el proceso de test nunca terminaría solo.
+
+**Qué NO cubren estos tests**: nada de Socket.IO, nada de Supabase, nada de las páginas del lado del cliente (`public/*.js`) — es deliberadamente el nivel más barato de cobertura (funciones puras, sin red), pensado para agarrar el tipo de bug que ya pasó una vez de verdad: `normalizeFormConfig` tiene un test específico para el caso que rompió producción (una config vieja sin `phone`/`name`/`orderNumber`/`amount` quedando esos campos ocultos para siempre). Ampliar esto a tests de integración (contra un Supabase de prueba, o mockeado) queda pendiente.
+
 ---
 
 ## 8. Limitaciones conocidas / a tener en cuenta
 
-- **Persistencia parcial**: pedidos, usuario admin y configuración de campos viven en Supabase (sobreviven a un reinicio); deliverys y rutas siguen solo en memoria (a propósito, ver sección 2 — no aporta persistir una posición GPS que cambia cada pocos segundos).
+- **Persistencia parcial**: pedidos, usuario admin, configuración de campos, catálogo, gastos de proveedores y el efectivo inicial por delivery viven en Supabase (sobreviven a un reinicio); deliverys y rutas siguen solo en memoria (a propósito — no aporta persistir una posición GPS que cambia cada pocos segundos).
+- **Sin tests de integración**: los tests automáticos (ver arriba) cubren solo funciones puras — un bug en la interacción real entre `server.js` y Supabase, o en el JS del navegador, no lo agarra ningún test hoy, solo la verificación manual.
+- **Sin rate-limiting por IP**: `webOrderCooldown` en `order:web-add` frena pedidos repetidos del mismo socket, pero no hay límite por IP — alguien con varias pestañas/dispositivos podría mandar pedidos falsos seguido. No hay CAPTCHA ni nada parecido.
+- **Sin monitoreo de errores**: los `console.error` de fallos al guardar en Supabase (fire-and-forget) solo quedan en los logs de Render — si nadie los mira, un pedido que falló al guardarse pasa desapercibido.
 - **Un solo admin, sin multi-cliente**: hay un único usuario/contraseña de administrador (sin roles ni cuentas separadas). No está pensado todavía para vender a más de un restaurante (haría falta separar cuentas/datos por cliente en Supabase, ej. una fila por restaurante y filtrar todo por esa clave).
 - **Tracking en segundo plano**: es una web, no una app nativa — si el celular del delivery se bloquea o cambia de app, el navegador frena la ubicación por su cuenta (no hay forma de evitarlo desde una web). Solo una app nativa (Android/iOS) resolvería esto de raíz.
 - **Geocodificación de direcciones de texto**: aunque Google es mucho mejor que Nominatim, no es infalible — por eso los pines son arrastrables y las direcciones "aproximadas" (a nivel de calle) se marcan para revisar.
 - **corsproxy.io y OSRM son servicios de terceros gratuitos**: no tienen garantía de actividad. Si alguno falla, la app avisa y sigue funcionando con una alternativa más simple (pegar el link completo, o distancia en línea recta) en vez de romperse.
+
+---
+
+## 9. Backup y recuperación
+
+No hay ningún backup automatizado configurado desde este proyecto — lo que existe hoy:
+
+- **Exportar CSV** (`analiticas.html`, sección "Exportar"): `GET /api/export/orders.csv` y `GET /api/export/business-days.csv` (ambos `requireAuth`), arman el CSV a mano (`csvCell()`/`toCsv()` en `server.js`, sin librería — comillas dobles según RFC 4180) y lo mandan como descarga (`Content-Disposition: attachment`). Pensado para contabilidad y como respaldo manual — conviene bajarlo cada tanto (ej. al cerrar el mes) y guardarlo aparte.
+- **Backups de Supabase**: Supabase hace backups automáticos a nivel de base de datos, pero **qué tan seguido y por cuánto tiempo depende del plan** (el plan free tiene retención más corta que los planes pagos, que además ofrecen point-in-time recovery). Esto se configura desde el panel de Supabase (Project Settings → Database → Backups), no desde este repo — vale la pena revisar qué plan están usando y si conviene subir de plan antes de que el volumen real de pedidos crezca.
+- **El botón "Borrar TODO"** (`analiticas.html`, "Zona de pruebas") es irreversible del lado de la app — no hay un "deshacer". Si se toca por error, la única recuperación posible es restaurar desde un backup de Supabase (si el plan lo permite) o desde un CSV exportado antes (que solo tiene lo que ya se había bajado, no un respaldo completo con todas las columnas).
+
+**Pendiente, no armado todavía**: un backup automático programado (ej. un cron que llame a los endpoints de exportación y guarde el resultado en algún lado) — hoy depende de que alguien se acuerde de tocar los botones de "Exportar" a mano.
