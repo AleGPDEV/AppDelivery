@@ -225,9 +225,13 @@ function customFieldInputId(key) {
 }
 
 function renderCheckoutFields() {
-  // Celular y Nombre siempre se piden — fijo, ya no depende de formConfig
-  // (antes leía formConfig.name.visible, que podía traer un `false` guardado
-  // de antes de este cambio sin ninguna forma de volver a activarlo).
+  // El celular siempre se pide acá (no hay otra forma de contactar a un
+  // cliente anónimo) — a diferencia de nuevo-pedido.js, donde el admin sí
+  // puede relajarlo. Nombre vuelve a ser configurable desde Ajustes.
+  const nameField = document.querySelector('[data-field="name"]');
+  const nameCfg = formConfig.name || { visible: true };
+  if (nameField) nameField.style.display = nameCfg.visible === false ? 'none' : '';
+
   checkoutCustomFieldsEl.innerHTML = '';
   (formConfig.customFields || []).forEach((f) => {
     if (f.visible === false) return;

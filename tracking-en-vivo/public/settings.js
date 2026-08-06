@@ -40,7 +40,13 @@ settingsOverlay.innerHTML = `
 
     <section>
       <h2>Reglas fijas</h2>
-      <p class="hint">Todo pedido tiene que indicar si se retira o se envía, y siempre pide el celular del cliente — esto no se puede desactivar.</p>
+      <p class="hint">Todo pedido tiene que indicar si se retira o se envía — esto no se puede desactivar. El pedido online (para clientes) siempre pide el celular, sin excepción, porque no hay otra forma de contactar a un cliente anónimo.</p>
+    </section>
+
+    <section>
+      <h2>Personalizar campos del formulario</h2>
+      <p class="hint">Elegí qué mostrar y qué es obligatorio al cargar un pedido a mano o de a muchos (carga masiva). El "Ticket" que distingue cada pedido es siempre automático, no depende de estos campos.</p>
+      <div id="builtin-field-config-list"></div>
     </section>
 
     <section>
@@ -80,6 +86,7 @@ settingsOverlay.innerHTML = `
 document.body.appendChild(settingsOverlay);
 
 const settingsCloseBtn = document.getElementById('settings-close-btn');
+const builtinFieldConfigListEl = document.getElementById('builtin-field-config-list');
 const paymentMethodListEl = document.getElementById('payment-method-list');
 const newPaymentMethodNameEl = document.getElementById('new-payment-method-name');
 const newPaymentMethodCashEl = document.getElementById('new-payment-method-cash');
@@ -159,6 +166,65 @@ addPaymentMethodBtn.addEventListener('click', () => {
   newPaymentMethodNameEl.value = '';
   newPaymentMethodCashEl.checked = false;
 });
+
+const BUILTIN_FIELD_LABELS = {
+  phone: 'Celular',
+  name: 'Nombre',
+  orderNumber: 'Nº de pedido',
+  amount: 'Monto',
+};
+
+// Celular/Nombre/Nº de pedido/Monto — mostrar/ocultar y marcar obligatorio,
+// igual que un campo personalizado. El tipo de envío (Retira/Envío) no
+// aparece acá: ese es siempre obligatorio, no es un toggle (ver "Reglas fijas").
+function renderBuiltinFieldConfig() {
+  builtinFieldConfigListEl.innerHTML = '';
+
+  Object.keys(BUILTIN_FIELD_LABELS).forEach((key) => {
+    const cfg = formConfig[key] || { visible: true, required: false };
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '16px';
+    row.style.padding = '6px 0';
+
+    const label = document.createElement('span');
+    label.style.flex = '1';
+    label.textContent = BUILTIN_FIELD_LABELS[key];
+
+    const visibleLabel = document.createElement('label');
+    visibleLabel.style.display = 'flex';
+    visibleLabel.style.alignItems = 'center';
+    visibleLabel.style.gap = '4px';
+    visibleLabel.style.fontSize = '0.85rem';
+    const visibleCheck = document.createElement('input');
+    visibleCheck.type = 'checkbox';
+    visibleCheck.checked = cfg.visible !== false;
+    visibleLabel.append(visibleCheck, 'Mostrar');
+
+    const requiredLabel = document.createElement('label');
+    requiredLabel.style.display = 'flex';
+    requiredLabel.style.alignItems = 'center';
+    requiredLabel.style.gap = '4px';
+    requiredLabel.style.fontSize = '0.85rem';
+    const requiredCheck = document.createElement('input');
+    requiredCheck.type = 'checkbox';
+    requiredCheck.checked = !!cfg.required;
+    requiredCheck.disabled = !visibleCheck.checked;
+    requiredLabel.append(requiredCheck, 'Obligatorio');
+
+    function emitUpdate() {
+      requiredCheck.disabled = !visibleCheck.checked;
+      formConfig = { ...formConfig, [key]: { visible: visibleCheck.checked, required: visibleCheck.checked && requiredCheck.checked } };
+      socket.emit('form-config:update', formConfig);
+    }
+    visibleCheck.addEventListener('change', emitUpdate);
+    requiredCheck.addEventListener('change', emitUpdate);
+
+    row.append(label, visibleLabel, requiredLabel);
+    builtinFieldConfigListEl.appendChild(row);
+  });
+}
 
 function renderFieldConfig() {
   fieldConfigListEl.innerHTML = '';
@@ -258,6 +324,7 @@ function renderFieldConfig() {
 
 socket.on('form-config:snapshot', (cfg) => {
   formConfig = cfg || {};
+  renderBuiltinFieldConfig();
   renderPaymentMethods();
   renderFieldConfig();
 });

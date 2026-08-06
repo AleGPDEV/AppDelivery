@@ -110,16 +110,14 @@ function labelFor(key) {
 
 // Qué campos están activos y en qué orden — la carga masiva (pegado de
 // planilla) sigue exactamente esta lista, así una columna de menos o de más
-// nunca desalinea el resto de la fila. Los personalizados van siempre al
-// final, en el orden en que se crearon.
-// Los 5 campos fijos (phone/name/orderNumber/location/amount) SIEMPRE van —
-// ya no son ocultables desde Ajustes. Antes esto leía formConfig[key].visible,
-// que podía traer un `false` guardado de antes de este cambio y no había
-// forma de volver a mostrarlo (el toggle para eso ya no existe) — quedaban
-// ocultos para siempre, tanto acá como en la tabla de Pedidos.
+// nunca desalinea el resto de la fila, y siempre coincide con lo que pide el
+// formulario individual de arriba. Los personalizados van siempre al final,
+// en el orden en que se crearon. `location` no pasa por acá — siempre va
+// (el "retira o envía" de cada línea se infiere de si trae ubicación o no).
 function visibleFieldOrder() {
+  const builtins = FIELD_ORDER.filter((key) => key === 'location' || (formConfig[key] || { visible: true }).visible !== false);
   const customs = customFields().filter((f) => f.visible !== false).map((f) => f.key);
-  return [...FIELD_ORDER, ...customs];
+  return [...builtins, ...customs];
 }
 
 function updateBulkHint() {
@@ -157,9 +155,13 @@ function renderCustomFieldInputs() {
 }
 
 function applyFormConfig() {
-  // phone/name/orderNumber/amount ya no se ocultan nunca (ver comentario en
-  // visibleFieldOrder) — location tiene su propio mecanismo (el toggle
-  // Retira/Envío, ver applyDeliveryTypeButtons), no pasa por acá.
+  // location no pasa por acá — tiene su propio mecanismo (el toggle
+  // Retira/Envío, ver applyDeliveryTypeButtons).
+  ['phone', 'name', 'orderNumber', 'amount'].forEach((key) => {
+    const wrapper = document.querySelector(`[data-field="${key}"]`);
+    const cfg = formConfig[key] || { visible: true, required: false };
+    if (wrapper) wrapper.style.display = cfg.visible === false ? 'none' : '';
+  });
   renderCustomFieldInputs();
   updateBulkHint();
 }
@@ -272,14 +274,21 @@ loadBtn.addEventListener('click', async () => {
   if (failed.length === 0) stopsTextEl.value = '';
 });
 
-// Teléfono, Nº de pedido, Monto y tipo de envío son siempre obligatorios;
-// Nombre siempre opcional — fijo en el código, ya no depende de formConfig
-// (esos 5 campos ya no son configurables desde Ajustes).
+// Tipo de envío es lo único realmente fijo (no queda otra: o retira o
+// envía). Celular/Nombre/Nº de pedido/Monto vuelven a depender de Ajustes,
+// igual que un campo personalizado.
+const FIELD_INPUTS = {
+  phone: newPhoneEl,
+  name: newNameEl,
+  orderNumber: newOrderNumEl,
+  amount: newAmountEl,
+};
+
 newOrderBtn.addEventListener('click', async () => {
-  const missing = [];
-  if (!newPhoneEl.value.trim()) missing.push('Celular');
-  if (!newOrderNumEl.value.trim()) missing.push('Nº de pedido');
-  if (!newAmountEl.value.trim()) missing.push('Monto');
+  const missing = Object.keys(FIELD_INPUTS).filter((key) => {
+    const cfg = formConfig[key];
+    return cfg && cfg.visible !== false && cfg.required && !FIELD_INPUTS[key].value.trim();
+  }).map(labelFor);
   if (!deliveryType) missing.push('Tipo de envío (Retira/Envío)');
   const missingCustomFields = customFields().filter((f) => {
     if (f.visible === false || !f.required) return false;

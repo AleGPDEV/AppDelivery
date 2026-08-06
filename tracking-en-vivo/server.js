@@ -131,12 +131,17 @@ const products = new Map();
 // borra ese método de pago.
 const expenses = new Map();
 
-// `phone` y "tipo de envío" (retira/envía) ya no son casilleros de acá — son
-// obligatorios siempre, fijos en el código que arma el pedido (ver
-// order:add/order:web-add más abajo y nuevo-pedido.js/pedido-cliente.js).
-// `name`/`orderNumber`/`amount` se mantienen con su comportamiento de
-// siempre, pero ya no aparecen como opciones "personalizables" en Ajustes.
+// "Tipo de envío" (retira/envía) es el único campo realmente fijo — siempre
+// obligatorio, no vive acá (ver order:add/order:web-add y
+// nuevo-pedido.js/pedido-cliente.js). `phone`/`name`/`orderNumber`/`amount`
+// SÍ son personalizables de nuevo desde Ajustes (mostrar/ocultar y marcar
+// obligatorio), igual que un campo personalizado — con una excepción: el
+// pedido online (pedido-cliente.js/order:web-add) exige el teléfono siempre,
+// sin importar este valor, porque ahí no hay otra forma de contactar a un
+// cliente anónimo. Para carga manual del admin sí se puede relajar (ej. un
+// cliente conocido de cuenta corriente).
 let formConfig = {
+  phone: { visible: true, required: true },
   name: { visible: true, required: false },
   orderNumber: { visible: true, required: true },
   amount: { visible: true, required: true },
@@ -400,6 +405,12 @@ async function loadFormConfig() {
       { id: 'debito', name: 'Débito', isCash: false },
     ];
   }
+  // Ídem para phone/name/orderNumber/amount — volvieron a ser personalizables,
+  // así que necesitan un default sensato si la config guardada no los trae.
+  if (!formConfig.phone) formConfig.phone = { visible: true, required: true };
+  if (!formConfig.name) formConfig.name = { visible: true, required: false };
+  if (!formConfig.orderNumber) formConfig.orderNumber = { visible: true, required: true };
+  if (!formConfig.amount) formConfig.amount = { visible: true, required: true };
 }
 
 async function bootstrapAdmin() {
@@ -644,8 +655,11 @@ io.on('connection', (socket) => {
     const hasLocation = typeof lat === 'number' && typeof lng === 'number';
     // Tipo de envío obligatorio: o retira (pickup) o tiene que traer una
     // ubicación resuelta — no queda una tercera opción de "ninguna de las
-    // dos". Teléfono también obligatorio siempre, ya no es configurable.
-    if (!phone || !(pickup || hasLocation)) return;
+    // dos", esto no es configurable. El teléfono acá sí vuelve a depender de
+    // Ajustes (el admin puede relajarlo para carga manual) — a diferencia de
+    // order:web-add, que lo exige siempre porque ahí no hay otra forma de
+    // contactar a un cliente anónimo.
+    if ((formConfig.phone?.required && !phone) || !(pickup || hasLocation)) return;
     const entry = {
       seq: nextSeq++,
       orderNumber: (orderNumber || '').toString().slice(0, 20),
