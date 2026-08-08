@@ -378,6 +378,20 @@ button.small {
   border: 1px solid var(--border);
 }
 
+.location-picker-map {
+  height: 220px;
+  margin-top: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+/* Google Places pinta el desplegable de sugerencias como hijo directo de
+   <body>, no del modal -- sin esto queda tapado por .modal-overlay (z-index 1000). */
+.pac-container {
+  z-index: 1100;
+}
+
 /* Dashboard: mapa a la izquierda, tarjetas de rendición por delivery a la
    derecha (fusionado con lo que antes era la pestaña "Rendición de caja").
    En pantallas angostas se apilan (mapa arriba, tarjetas abajo). */

@@ -23,6 +23,7 @@ const checkoutNameEl = document.getElementById('checkout-name');
 const checkoutPickupEl = document.getElementById('checkout-pickup');
 const checkoutLocationFieldEl = document.getElementById('checkout-location-field');
 const checkoutLocationEl = document.getElementById('checkout-location');
+const checkoutMapEl = document.getElementById('checkout-map');
 const checkoutCustomFieldsEl = document.getElementById('checkout-custom-fields');
 const checkoutSubmitBtn = document.getElementById('checkout-submit-btn');
 const checkoutStatusEl = document.getElementById('checkout-status');
@@ -37,6 +38,82 @@ const categories = new Map();
 const products = new Map();
 let formConfig = { customFields: [] };
 let dayOpen = false;
+
+// Mapa + buscador de direcciones para "Dirección de entrega", para que el
+// cliente no tenga que escribir/pegar un link de Google Maps a mano. Carga
+// perezosa (recién al abrir el checkout con "Envío"), y una sola vez por
+// sesión de página (mapApi/locationPickerPromise cacheados, mismo patrón que
+// loadGoogleMaps() en geo.js). selectedPoint es el punto elegido a través del
+// mapa/buscador; si el cliente lo pisa escribiendo texto distinto, el submit
+// vuelve a Geo.resolveInput() como siempre (link/dirección/coordenadas).
+let mapApi = null;
+let locationPickerPromise = null;
+let selectedPoint = null;
+
+function initLocationPicker() {
+  if (locationPickerPromise) return locationPickerPromise;
+  locationPickerPromise = Geo.loadGoogleMaps().then((maps) => {
+    const center = { lat: -34.9011, lng: -56.1645 };
+    const map = new maps.Map(checkoutMapEl, {
+      center,
+      zoom: 15,
+      streetViewControl: false,
+      mapTypeControl: false,
+      fullscreenControl: false,
+    });
+    const marker = new maps.Marker({ position: center, map, draggable: true });
+    const geocoder = new maps.Geocoder();
+    mapApi = { map, marker };
+
+    function setPoint(lat, lng, label) {
+      selectedPoint = { lat, lng, label: label || `${lat}, ${lng}`, precision: 'exact' };
+      checkoutLocationEl.value = selectedPoint.label;
+    }
+
+    function reverseGeocode(lat, lng) {
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        const label = (status === 'OK' && results && results[0]) ? results[0].formatted_address : null;
+        setPoint(lat, lng, label);
+      });
+    }
+
+    marker.addListener('dragend', () => {
+      const pos = marker.getPosition();
+      reverseGeocode(pos.lat(), pos.lng());
+    });
+    map.addListener('click', (e) => {
+      marker.setPosition(e.latLng);
+      reverseGeocode(e.latLng.lat(), e.latLng.lng());
+    });
+
+    const autocomplete = new maps.places.Autocomplete(checkoutLocationEl, {
+      componentRestrictions: { country: 'uy' },
+      fields: ['geometry', 'formatted_address'],
+    });
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      if (!place.geometry || !place.geometry.location) return;
+      const loc = place.geometry.location;
+      map.panTo(loc);
+      map.setZoom(17);
+      marker.setPosition(loc);
+      setPoint(loc.lat(), loc.lng(), place.formatted_address);
+    });
+  }).catch((e) => {
+    console.warn('No se pudo cargar el mapa de dirección de entrega:', e);
+  });
+  return locationPickerPromise;
+}
+
+function showLocationPicker() {
+  // El mapa puede haberse creado mientras #checkout-map estaba oculto (display:none),
+  // lo que le deja tiles en blanco -- 'resize' + recentrar arregla eso al mostrarlo.
+  initLocationPicker().then(() => {
+    if (!mapApi) return;
+    google.maps.event.trigger(mapApi.map, 'resize');
+    mapApi.map.setCenter(mapApi.marker.getPosition());
+  });
+}
 
 // 'categories' = grilla de tarjetas con foto (pantalla inicial) — 'products'
 // = productos de una sola categoría, con volver. Sin pushState/URL propia a
@@ -287,6 +364,7 @@ function renderCheckoutFields() {
 
 checkoutPickupEl.addEventListener('change', () => {
   checkoutLocationFieldEl.style.display = checkoutPickupEl.checked ? 'none' : '';
+  if (!checkoutPickupEl.checked) showLocationPicker();
 });
 
 cartCheckoutBtn.addEventListener('click', () => {
@@ -296,6 +374,7 @@ cartCheckoutBtn.addEventListener('click', () => {
   checkoutStatusEl.textContent = '';
   checkoutStatusEl.className = 'status';
   checkoutOverlay.style.display = 'flex';
+  if (!checkoutPickupEl.checked) showLocationPicker();
 });
 
 checkoutCloseBtn.addEventListener('click', () => { checkoutOverlay.style.display = 'none'; });
@@ -333,16 +412,22 @@ checkoutSubmitBtn.addEventListener('click', async () => {
   if (!checkoutPickupEl.checked) {
     const locationRaw = checkoutLocationEl.value.trim();
     if (locationRaw) {
-      try {
-        point = await Geo.resolveInput(locationRaw, 'tu pedido', (msg) => {
-          checkoutStatusEl.textContent = msg;
-          checkoutStatusEl.className = 'status';
-        });
-      } catch (e) {
-        checkoutStatusEl.textContent = e.message;
-        checkoutStatusEl.className = 'status error';
-        checkoutSubmitBtn.disabled = false;
-        return;
+      if (selectedPoint && selectedPoint.label === locationRaw) {
+        // El texto no cambió desde que se eligió en el mapa/buscador -- usamos
+        // ese punto directo, sin volver a geocodificar.
+        point = selectedPoint;
+      } else {
+        try {
+          point = await Geo.resolveInput(locationRaw, 'tu pedido', (msg) => {
+            checkoutStatusEl.textContent = msg;
+            checkoutStatusEl.className = 'status';
+          });
+        } catch (e) {
+          checkoutStatusEl.textContent = e.message;
+          checkoutStatusEl.className = 'status error';
+          checkoutSubmitBtn.disabled = false;
+          return;
+        }
       }
     }
   }

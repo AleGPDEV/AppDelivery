@@ -103,7 +103,7 @@ const Geo = (() => {
     googleMapsLoadPromise = new Promise((resolve, reject) => {
       if (window.google && window.google.maps) { resolve(window.google.maps); return; }
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
       script.onload = () => resolve(window.google.maps);
       script.onerror = () => reject(new Error('No se pudo cargar Google Maps (revisá la API key y sus restricciones de sitio en Google Cloud Console).'));
       document.head.appendChild(script);
@@ -386,5 +386,6 @@ const Geo = (() => {
   return {
     parseStopLine, parseStopsText, parseAmount, parseCoordinates, extractAddressText,
     resolveSync, resolveInput, haversineKm, buildGoogleMapsUrl, computeRoute, sleep,
+    loadGoogleMaps,
   };
 })();

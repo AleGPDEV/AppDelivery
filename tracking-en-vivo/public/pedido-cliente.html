@@ -70,7 +70,9 @@
         </div>
         <div class="field" id="checkout-location-field" data-field="location">
           <label for="checkout-location">Dirección de entrega</label>
-          <input type="text" id="checkout-location" placeholder="Link de Google Maps, dirección o coordenadas">
+          <input type="text" id="checkout-location" placeholder="Buscá tu dirección...">
+          <div id="checkout-map" class="location-picker-map"></div>
+          <p class="hint">Elegí tu dirección en el buscador de arriba, o arrastrá el pin al punto exacto.</p>
         </div>
         <div id="checkout-custom-fields"></div>
         <button id="checkout-submit-btn" type="button" class="primary">Enviar pedido</button>
@@ -84,7 +86,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="geo.js?v=4"></script>
+  <script src="geo.js?v=5"></script>
   <script src="pedido-cliente.js"></script>
 </body>
 </html>
