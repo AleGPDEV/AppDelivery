@@ -1,5 +1,7 @@
 import { Store } from '/js/store.js';
 import { Router } from '/js/router.js';
+import { recomputeRouteForDriver } from '/js/route-helper.js';
+import { createDriverLabel } from '/js/driver-label.js';
 
 const template = `
 <main>
@@ -63,12 +65,67 @@ function driverPopup(d) {
   return popupWrap(`<strong>${d.name}</strong><br>${timeAgo(d.updatedAt)}`);
 }
 
-function orderPopup(drivers, o) {
-  const assignedText = o.assignedTo && drivers.has(o.assignedTo)
-    ? `Asignado a ${drivers.get(o.assignedTo).name}`
-    : 'Sin asignar';
-  const who = o.name ? `${o.name}${o.phone ? ` (${o.phone})` : ''}<br>` : '';
-  return popupWrap(`<strong>Pedido #${o.orderNumber || '?'}</strong><br>${who}${o.label}<br>${assignedText}`);
+// A diferencia de driverPopup (string, sin interacción), acá hace falta un
+// elemento DOM de verdad para poder colgarle un listener al <select> de
+// "Asignar a" — mismo patrón que ya usa driver.js para su popup con el botón
+// "Entregado" (buildOrderPopup() devuelve un nodo, no un string).
+function buildOrderPopupContent(drivers, o, driverLabel, onAssignChange) {
+  const wrap = document.createElement('div');
+  wrap.style.color = '#1c1e21';
+  wrap.style.fontSize = '0.9rem';
+  wrap.style.lineHeight = '1.5';
+
+  const title = document.createElement('strong');
+  title.textContent = `Pedido #${o.orderNumber || '?'}`;
+  wrap.appendChild(title);
+  wrap.appendChild(document.createElement('br'));
+
+  if (o.name) {
+    wrap.appendChild(document.createTextNode(`${o.name}${o.phone ? ` (${o.phone})` : ''}`));
+    wrap.appendChild(document.createElement('br'));
+  }
+  wrap.appendChild(document.createTextNode(o.label || ''));
+
+  const assignLabel = document.createElement('label');
+  assignLabel.style.display = 'block';
+  assignLabel.style.marginTop = '8px';
+  assignLabel.style.fontSize = '0.8rem';
+  assignLabel.style.fontWeight = '600';
+  assignLabel.textContent = 'Asignar a';
+
+  const select = document.createElement('select');
+  select.style.marginTop = '4px';
+  select.style.width = '100%';
+  select.style.fontSize = '0.85rem';
+  select.style.padding = '4px 6px';
+  select.style.background = '#fff';
+  select.style.color = '#1c1e21';
+  select.style.border = '1px solid #d7dee3';
+  select.style.borderRadius = '6px';
+  const noneOpt = document.createElement('option');
+  noneOpt.value = '';
+  noneOpt.textContent = 'Sin asignar';
+  select.appendChild(noneOpt);
+  drivers.forEach((d, driverId) => {
+    const opt = document.createElement('option');
+    opt.value = driverId;
+    opt.textContent = d.name;
+    select.appendChild(opt);
+  });
+  if (o.assignedTo && !drivers.has(o.assignedTo)) {
+    const opt = document.createElement('option');
+    opt.value = o.assignedTo;
+    opt.textContent = `${driverLabel(o.assignedTo)} (desconectado)`;
+    select.appendChild(opt);
+  }
+  select.value = o.assignedTo || '';
+  select.addEventListener('click', (e) => e.stopPropagation());
+  select.addEventListener('change', () => onAssignChange(o.id, select.value || null));
+
+  assignLabel.appendChild(select);
+  wrap.appendChild(assignLabel);
+
+  return wrap;
 }
 
 function orderColor(drivers, o) {
@@ -90,6 +147,7 @@ function teardownActive() {
   active.orders.forEach((o) => { if (o.marker) o.marker.setMap(null); if (o.infoWindow) o.infoWindow.close(); });
   active.routeLines.forEach((line) => line.setMap(null));
   active.unsubscribe();
+  active.teardownDriverLabel();
   active = null;
 }
 
@@ -115,6 +173,21 @@ async function mount(root) {
   const orders = new Map();
   const routeLines = new Map();
   let hasFitBounds = false;
+
+  const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
+
+  // Asignar directo desde el popup del pin, sin tener que ir a la pestaña
+  // Pedidos — mismo patrón que assignOrder() en esa vista (emitir, actualizar
+  // el pin al toque, recalcular la ruta de a quién se le sacó y a quién se le
+  // dio el pedido).
+  function assignOrder(orderId, driverId) {
+    const existing = orders.get(orderId);
+    const oldDriverId = existing ? existing.assignedTo : null;
+    Store.socket.emit('order:assign', { id: orderId, driverId });
+    if (existing) upsertOrder({ ...existing, assignedTo: driverId });
+    recomputeRouteForDriver(oldDriverId);
+    recomputeRouteForDriver(driverId);
+  }
 
   function fitBoundsToEverything() {
     const points = [
@@ -154,7 +227,7 @@ async function mount(root) {
     orders.forEach((o) => {
       if (o.assignedTo === driverId && o.marker) {
         o.marker.setIcon(orderIcon(orderColor(drivers, o)));
-        o.infoWindow.setContent(orderPopup(drivers, o));
+        o.infoWindow.setContent(buildOrderPopupContent(drivers, o, driverLabel, assignOrder));
       }
     });
   }
@@ -202,7 +275,7 @@ async function mount(root) {
       if (hasLocation && marker) {
         marker.setPosition({ lat: o.lat, lng: o.lng });
         marker.setIcon(orderIcon(color));
-        infoWindow.setContent(orderPopup(drivers, existing));
+        infoWindow.setContent(buildOrderPopupContent(drivers, existing, driverLabel, assignOrder));
       } else if (!hasLocation && marker) {
         marker.setMap(null);
         existing.marker = null;
@@ -211,7 +284,7 @@ async function mount(root) {
     } else if (hasLocation) {
       const position = { lat: o.lat, lng: o.lng };
       const marker = new maps.Marker({ position, map, icon: orderIcon(color) });
-      const infoWindow = new maps.InfoWindow({ content: orderPopup(drivers, o) });
+      const infoWindow = new maps.InfoWindow({ content: buildOrderPopupContent(drivers, o, driverLabel, assignOrder) });
       marker.addListener('click', () => infoWindow.open({ anchor: marker, map }));
       orders.set(o.id, { ...o, marker, infoWindow });
       fitBoundsToEverything();
@@ -281,7 +354,7 @@ async function mount(root) {
     Store.off('route:remove', onRouteRemove);
   };
 
-  active = { intervalId, drivers, orders, routeLines, unsubscribe };
+  active = { intervalId, drivers, orders, routeLines, unsubscribe, teardownDriverLabel };
 
   // Store ya puede tener snapshots cacheados de antes de que esta vista
   // montara (no llega uno nuevo por cada visita, solo al conectar) —

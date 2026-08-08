@@ -37,49 +37,61 @@ settingsOverlay.innerHTML = `
   <div class="modal-box">
     <button id="settings-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
 
-    <section>
-      <h2>Reglas fijas</h2>
-      <p class="hint">Todo pedido tiene que indicar si se retira o se envía — esto no se puede desactivar. El pedido online (para clientes) siempre pide el celular, sin excepción, porque no hay otra forma de contactar a un cliente anónimo.</p>
-    </section>
+    <div class="settings-tabs" role="tablist" aria-label="Secciones de configuración">
+      <button type="button" class="active" data-settings-tab="pedidos">Pedidos</button>
+      <button type="button" data-settings-tab="delivery">Delivery</button>
+      <button type="button" data-settings-tab="cuenta">Cuenta</button>
+    </div>
 
-    <section>
-      <h2>Personalizar campos del formulario</h2>
-      <p class="hint">Elegí qué mostrar y qué es obligatorio al cargar un pedido a mano o de a muchos (carga masiva). El "Ticket" que distingue cada pedido es siempre automático, no depende de estos campos.</p>
-      <div id="builtin-field-config-list"></div>
-    </section>
+    <div data-settings-panel="pedidos">
+      <section>
+        <h2>Reglas fijas</h2>
+        <p class="hint">Todo pedido tiene que indicar si se retira o se envía — esto no se puede desactivar. El pedido online (para clientes) siempre pide el celular, sin excepción, porque no hay otra forma de contactar a un cliente anónimo.</p>
+      </section>
 
-    <section>
-      <h2>Métodos de pago</h2>
-      <p class="hint">Marcá "Es efectivo físico" en los que salen/entran de la caja en billetes — afecta el cálculo de "Total a entregar" y el cierre de día.</p>
-      <div id="payment-method-list"></div>
-      <div style="display:flex; gap:8px; margin-top:10px;">
-        <input type="text" id="new-payment-method-name" placeholder="Nombre del método (ej: Mercado Pago)" style="flex:1;">
-        <label style="display:flex; align-items:center; gap:4px; font-size:0.85rem; white-space:nowrap;">
-          <input type="checkbox" id="new-payment-method-cash" style="width:auto;"> Es efectivo físico
-        </label>
-        <button id="add-payment-method-btn" type="button" class="primary small">Agregar</button>
-      </div>
-    </section>
+      <section>
+        <h2>Personalizar campos del formulario</h2>
+        <p class="hint">Elegí qué mostrar y qué es obligatorio al cargar un pedido a mano o de a muchos (carga masiva). El "Ticket" que distingue cada pedido es siempre automático, no depende de estos campos.</p>
+        <div id="builtin-field-config-list"></div>
+      </section>
 
-    <section>
-      <h2>Campos personalizados</h2>
-      <p class="hint">Campos extra que se piden al cargar un pedido (además de teléfono, tipo de envío, nombre, Nº de pedido y monto).</p>
-      <div id="field-config-list"></div>
-    </section>
+      <section>
+        <h2>Campos personalizados</h2>
+        <p class="hint">Campos extra que se piden al cargar un pedido (además de teléfono, tipo de envío, nombre, Nº de pedido y monto).</p>
+        <div id="field-config-list"></div>
+      </section>
+    </div>
 
-    <section>
-      <h2>Cuenta</h2>
-      <div class="field">
-        <label for="pw-current">Contraseña actual</label>
-        <input type="password" id="pw-current" autocomplete="current-password">
-      </div>
-      <div class="field">
-        <label for="pw-new">Contraseña nueva (mínimo 8 caracteres)</label>
-        <input type="password" id="pw-new" autocomplete="new-password">
-      </div>
-      <button id="pw-btn" type="button" class="primary">Cambiar contraseña</button>
-      <p id="pw-status" class="status"></p>
-    </section>
+    <div data-settings-panel="delivery" hidden>
+      <section>
+        <h2>Métodos de pago</h2>
+        <p class="hint">Marcá "Es efectivo físico" en los que salen/entran de la caja en billetes — afecta el cálculo de "Total a entregar" y el cierre de día. Son los mismos botones que usa el delivery al marcar un pedido entregado.</p>
+        <div id="payment-method-list"></div>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <input type="text" id="new-payment-method-name" placeholder="Nombre del método (ej: Mercado Pago)" style="flex:1;">
+          <label style="display:flex; align-items:center; gap:4px; font-size:0.85rem; white-space:nowrap;">
+            <input type="checkbox" id="new-payment-method-cash" style="width:auto;"> Es efectivo físico
+          </label>
+          <button id="add-payment-method-btn" type="button" class="primary small">Agregar</button>
+        </div>
+      </section>
+    </div>
+
+    <div data-settings-panel="cuenta" hidden>
+      <section>
+        <h2>Cuenta</h2>
+        <div class="field">
+          <label for="pw-current">Contraseña actual</label>
+          <input type="password" id="pw-current" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label for="pw-new">Contraseña nueva (mínimo 8 caracteres)</label>
+          <input type="password" id="pw-new" autocomplete="new-password">
+        </div>
+        <button id="pw-btn" type="button" class="primary">Cambiar contraseña</button>
+        <p id="pw-status" class="status"></p>
+      </section>
+    </div>
   </div>
 `;
 document.body.appendChild(settingsOverlay);
@@ -98,6 +110,15 @@ const pwStatusEl = document.getElementById('pw-status');
 
 settingsBtn.addEventListener('click', () => { settingsOverlay.style.display = 'flex'; });
 settingsCloseBtn.addEventListener('click', () => { settingsOverlay.style.display = 'none'; });
+
+settingsOverlay.querySelectorAll('.settings-tabs button').forEach((tabBtn) => {
+  tabBtn.addEventListener('click', () => {
+    settingsOverlay.querySelectorAll('.settings-tabs button').forEach((b) => b.classList.toggle('active', b === tabBtn));
+    settingsOverlay.querySelectorAll('[data-settings-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.settingsPanel !== tabBtn.dataset.settingsTab;
+    });
+  });
+});
 settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) settingsOverlay.style.display = 'none'; });
 
 function paymentMethods() {
