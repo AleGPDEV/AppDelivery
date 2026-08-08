@@ -7,6 +7,8 @@
 const routes = new Map();
 let current = null; // { path, view }
 let viewRootEl = null;
+let headerEl = null;
+let subtitleEl = null;
 
 function getViewRoot() {
   if (!viewRootEl) viewRootEl = document.getElementById('view-root');
@@ -17,6 +19,13 @@ function setActiveTab(path) {
   document.querySelectorAll('.tabs a.tab-btn[href]').forEach((a) => {
     a.classList.toggle('active', a.getAttribute('href') === path);
   });
+}
+
+function setChrome(view) {
+  if (!headerEl) headerEl = document.getElementById('page-header');
+  if (!subtitleEl) subtitleEl = document.getElementById('page-subtitle');
+  headerEl.className = view.wide ? 'wide' : '';
+  subtitleEl.textContent = view.subtitle || '';
 }
 
 async function mountPath(path) {
@@ -37,6 +46,7 @@ async function mountPath(path) {
   const root = getViewRoot();
   root.innerHTML = view.template;
   document.title = view.title || document.title;
+  setChrome(view);
   setActiveTab(path);
   current = { path, view };
   try {

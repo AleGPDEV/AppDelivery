@@ -58,6 +58,16 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'No autenticado.' });
 }
 
+// Las 7 páginas de admin son ahora una SPA: todas sirven el mismo shell
+// (nav/header una sola vez, ruteo del lado del cliente entre vistas, un
+// solo socket compartido — ver public/js/store.js y public/js/router.js).
+// Va antes de express.static para interceptar esas 7 rutas exactas; el
+// gate de auth de arriba ya corrió, así que acá solo llegan pedidos
+// autenticados (o cualquiera si AUTH_DISABLED).
+app.get(PROTECTED_PAGES, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin-shell.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.post('/api/login', async (req, res) => {
