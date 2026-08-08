@@ -2,11 +2,15 @@ import { Store } from '/js/store.js';
 import { Router } from '/js/router.js';
 import { recomputeRouteForDriver } from '/js/route-helper.js';
 import { createDriverLabel } from '/js/driver-label.js';
+import { template as newOrderFormTemplate, mount as mountNewOrderForm, unmount as unmountNewOrderForm } from '/js/views/nuevo-pedido.js';
 
 const template = `
 <main class="wide">
   <section class="panel">
-    <h2>Registro de pedidos</h2>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <h2 style="margin:0;">Registro de pedidos</h2>
+      <button id="new-order-open-btn" type="button" class="primary small">+ Nuevo pedido</button>
+    </div>
     <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
     <div class="table-scroll">
       <table class="order-table">
@@ -18,6 +22,14 @@ const template = `
     </div>
   </section>
 </main>
+
+<div id="new-order-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button id="new-order-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2>Nuevo pedido</h2>
+    <div id="new-order-modal-body"></div>
+  </div>
+</div>
 
 <div id="items-overlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
@@ -91,6 +103,10 @@ function mount(root) {
   const itemsCloseBtn = root.querySelector('#items-close-btn');
   const itemsListEl = root.querySelector('#items-list');
   const itemsTotalEl = root.querySelector('#items-total');
+  const newOrderOpenBtn = root.querySelector('#new-order-open-btn');
+  const newOrderOverlay = root.querySelector('#new-order-overlay');
+  const newOrderCloseBtn = root.querySelector('#new-order-close-btn');
+  const newOrderModalBodyEl = root.querySelector('#new-order-modal-body');
 
   const socket = Store.socket;
   const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
@@ -290,6 +306,33 @@ function mount(root) {
   itemsCloseBtn.addEventListener('click', () => { itemsOverlay.style.display = 'none'; });
   itemsOverlay.addEventListener('click', (e) => { if (e.target === itemsOverlay) itemsOverlay.style.display = 'none'; });
 
+  // "Nuevo pedido" ya no es una pestaña aparte — el formulario/carga masiva
+  // se monta adentro de este modal, reusando tal cual el módulo que antes
+  // registraba su propia vista (ver nuevo-pedido.js). Se monta recién al
+  // abrir (no de una, al montar Pedidos) para no tener dos Store.on(...)
+  // duplicados corriendo en segundo plano sin necesidad.
+  let newOrderFormMounted = false;
+
+  function openNewOrderModal() {
+    newOrderModalBodyEl.innerHTML = newOrderFormTemplate;
+    mountNewOrderForm(newOrderModalBodyEl);
+    newOrderFormMounted = true;
+    newOrderOverlay.style.display = 'flex';
+  }
+
+  function closeNewOrderModal() {
+    newOrderOverlay.style.display = 'none';
+    if (newOrderFormMounted) {
+      unmountNewOrderForm();
+      newOrderFormMounted = false;
+    }
+    newOrderModalBodyEl.innerHTML = '';
+  }
+
+  newOrderOpenBtn.addEventListener('click', openNewOrderModal);
+  newOrderCloseBtn.addEventListener('click', closeNewOrderModal);
+  newOrderOverlay.addEventListener('click', (e) => { if (e.target === newOrderOverlay) closeNewOrderModal(); });
+
   function openEditModal(id, o) {
     editingOrderId = id;
     editPhoneEl.value = o.phone || '';
@@ -412,6 +455,9 @@ function mount(root) {
     Store.off('order:update', onOrderUpdate);
     Store.off('order:remove', onOrderRemove);
     teardownDriverLabel();
+    // Si se navega a otra pestaña con el modal de "Nuevo pedido" todavía
+    // abierto, no dejar sus propias suscripciones a Store colgadas.
+    if (newOrderFormMounted) unmountNewOrderForm();
   };
 
   renderHeader();

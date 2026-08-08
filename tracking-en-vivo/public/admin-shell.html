@@ -17,7 +17,6 @@
   </header>
 
   <nav class="tabs">
-    <a href="/nuevo-pedido.html" class="tab-btn">Nuevo pedido</a>
     <a href="/pedidos.html" class="tab-btn">Pedidos</a>
     <a href="/dashboard.html" class="tab-btn">Deliverys y mapa</a>
     <a href="/caja.html" class="tab-btn">Rendición de caja</a>
@@ -37,12 +36,14 @@
   <script type="module" src="js/router.js"></script>
   <script type="module" src="settings.js"></script>
   <script src="logout.js"></script>
-  <!-- Las 7 vistas de admin, cada una se auto-registra en el Router al cargar -->
+  <!-- Las 6 vistas de admin, cada una se auto-registra en el Router al cargar.
+       nuevo-pedido.js ya no es una vista propia (el formulario se monta en
+       un modal adentro de Pedidos) -- pedidos.js lo importa directo como
+       dependencia, no hace falta un <script> aparte acá. -->
   <script type="module" src="js/views/proveedores.js"></script>
   <script type="module" src="js/views/catalogo.js"></script>
   <script type="module" src="js/views/caja.js"></script>
   <script type="module" src="js/views/analiticas.js"></script>
-  <script type="module" src="js/views/nuevo-pedido.js"></script>
   <script type="module" src="js/views/pedidos.js"></script>
   <script type="module" src="js/views/dashboard.js"></script>
   <script type="module">

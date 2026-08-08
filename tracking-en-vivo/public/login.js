@@ -21,7 +21,7 @@ async function doLogin() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'No se pudo iniciar sesión.');
-    window.location.href = 'nuevo-pedido.html';
+    window.location.href = 'pedidos.html';
   } catch (e) {
     statusEl.textContent = e.message;
     statusEl.className = 'status error';

@@ -1,50 +1,50 @@
 import { Store } from '/js/store.js';
-import { Router } from '/js/router.js';
 import { recomputeRouteForDriver } from '/js/route-helper.js';
 
-const template = `
-<main>
-  <section class="panel">
-    <h2>Agendar un pedido</h2>
-    <p id="day-gate-msg" class="status error" style="display:none;">Iniciá el día desde "Analíticas" antes de cargar pedidos.</p>
-    <div class="field" data-field="phone">
-      <label for="new-phone">Celular</label>
-      <input type="text" id="new-phone" placeholder="Ej: 099 123 456">
+// Ya no es una vista propia del Router (era la pestaña "Nuevo pedido",
+// separada) — ahora pedidos.js importa {template, mount, unmount} de acá y
+// los monta dentro de un modal cuando el admin toca "+ Nuevo pedido", así
+// no hace falta cambiar de pantalla para cargar un pedido. Por eso no trae
+// <main> propio (el modal ya pone su propio contenedor).
+export const template = `
+  <p id="day-gate-msg" class="status error" style="display:none;">Iniciá el día desde "Analíticas" antes de cargar pedidos.</p>
+  <div class="field" data-field="phone">
+    <label for="new-phone">Celular</label>
+    <input type="text" id="new-phone" placeholder="Ej: 099 123 456">
+  </div>
+  <div class="field" data-field="name">
+    <label for="new-name">Nombre</label>
+    <input type="text" id="new-name" placeholder="Ej: Matias">
+  </div>
+  <div class="field" data-field="orderNumber">
+    <label for="new-ordernum">Nº de pedido</label>
+    <input type="text" id="new-ordernum" placeholder="Ej: 13">
+    <p id="order-dup-warning" class="hint" style="display:none; color:var(--danger);"></p>
+  </div>
+  <div class="field">
+    <label>Tipo de envío</label>
+    <div style="display:flex; gap:8px;">
+      <button type="button" id="delivery-type-pickup-btn" class="small">Retira en el local</button>
+      <button type="button" id="delivery-type-shipping-btn" class="small">Envío</button>
     </div>
-    <div class="field" data-field="name">
-      <label for="new-name">Nombre</label>
-      <input type="text" id="new-name" placeholder="Ej: Matias">
-    </div>
-    <div class="field" data-field="orderNumber">
-      <label for="new-ordernum">Nº de pedido</label>
-      <input type="text" id="new-ordernum" placeholder="Ej: 13">
-      <p id="order-dup-warning" class="hint" style="display:none; color:var(--danger);"></p>
-    </div>
-    <div class="field">
-      <label>Tipo de envío</label>
-      <div style="display:flex; gap:8px;">
-        <button type="button" id="delivery-type-pickup-btn" class="small">Retira en el local</button>
-        <button type="button" id="delivery-type-shipping-btn" class="small">Envío</button>
-      </div>
-    </div>
-    <div class="field" id="new-location-field" style="display:none;">
-      <label for="new-location">Ubicación de entrega</label>
-      <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
-    </div>
-    <div class="field" data-field="amount">
-      <label for="new-amount">Monto</label>
-      <input type="text" id="new-amount" placeholder="$ 1.630,00">
-    </div>
-    <div id="custom-fields-container"></div>
-    <div class="field">
-      <label for="new-assign">Asignar a</label>
-      <select id="new-assign"><option value="">Sin asignar</option></select>
-    </div>
-    <button id="new-order-btn" type="button" class="primary">Agregar pedido</button>
-    <p id="new-order-status" class="status"></p>
-  </section>
+  </div>
+  <div class="field" id="new-location-field" style="display:none;">
+    <label for="new-location">Ubicación de entrega</label>
+    <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
+  </div>
+  <div class="field" data-field="amount">
+    <label for="new-amount">Monto</label>
+    <input type="text" id="new-amount" placeholder="$ 1.630,00">
+  </div>
+  <div id="custom-fields-container"></div>
+  <div class="field">
+    <label for="new-assign">Asignar a</label>
+    <select id="new-assign"><option value="">Sin asignar</option></select>
+  </div>
+  <button id="new-order-btn" type="button" class="primary">Agregar pedido</button>
+  <p id="new-order-status" class="status"></p>
 
-  <section class="panel">
+  <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
     <div class="field">
       <label for="stops-text">Carga masiva (una línea por pedido, pegado directo de una planilla)</label>
       <textarea id="stops-text" rows="5"></textarea>
@@ -52,8 +52,7 @@ const template = `
     </div>
     <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
     <p id="load-status" class="status"></p>
-  </section>
-</main>
+  </div>
 `;
 
 function genId() {
@@ -78,7 +77,7 @@ const FIELD_SAMPLE = {
 
 let unsubscribe = null;
 
-function mount(root) {
+export function mount(root) {
   const stopsTextEl = root.querySelector('#stops-text');
   const loadBtn = root.querySelector('#load-btn');
   const loadStatusEl = root.querySelector('#load-status');
@@ -402,16 +401,7 @@ function mount(root) {
   renderAssignOptions();
 }
 
-function unmount() {
+export function unmount() {
   if (unsubscribe) unsubscribe();
   unsubscribe = null;
 }
-
-Router.register('/nuevo-pedido.html', {
-  title: 'Nuevo pedido — Deliverys en vivo',
-  subtitle: 'Cargá pedidos, asignalos, y mirá cómo se mueven tus deliverys en el mapa.',
-  wide: false,
-  template,
-  mount,
-  unmount,
-});

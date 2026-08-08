@@ -41,7 +41,7 @@ function verifyToken(token) {
 // login.html itself stay public. The real security boundary is the socket
 // handler checks below (socket.data.isAdmin), this is just so an anonymous
 // visitor lands on the login screen instead of a blank admin page.
-const PROTECTED_PAGES = ['/nuevo-pedido.html', '/pedidos.html', '/dashboard.html', '/caja.html', '/analiticas.html', '/catalogo.html', '/proveedores.html'];
+const PROTECTED_PAGES = ['/pedidos.html', '/dashboard.html', '/caja.html', '/analiticas.html', '/catalogo.html', '/proveedores.html'];
 
 app.use((req, res, next) => {
   if (!AUTH_DISABLED && PROTECTED_PAGES.includes(req.path) && !verifyToken(getToken(req))) {
@@ -1107,8 +1107,7 @@ async function start() {
     console.log(`Tracking en vivo corriendo en http://localhost:${PORT}`);
     console.log(`Login:         http://localhost:${PORT}/login.html`);
     console.log(`Delivery:      http://localhost:${PORT}/driver.html`);
-    console.log(`Nuevo pedido:  http://localhost:${PORT}/nuevo-pedido.html`);
-    console.log(`Pedidos:       http://localhost:${PORT}/pedidos.html`);
+    console.log(`Pedidos:       http://localhost:${PORT}/pedidos.html (incluye "+ Nuevo pedido")`);
     console.log(`Mapa:          http://localhost:${PORT}/dashboard.html`);
     console.log(`Rendición:     http://localhost:${PORT}/caja.html`);
     console.log(`Analíticas:    http://localhost:${PORT}/analiticas.html`);
