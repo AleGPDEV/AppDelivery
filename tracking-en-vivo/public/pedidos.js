@@ -169,6 +169,7 @@ function renderOrders() {
 
     const tdStatus = document.createElement('td');
     const statusSelect = document.createElement('select');
+    statusSelect.className = 'status-select';
     STATUS_OPTIONS.forEach(([value, text]) => {
       const opt = document.createElement('option');
       opt.value = value;
@@ -176,7 +177,9 @@ function renderOrders() {
       statusSelect.appendChild(opt);
     });
     statusSelect.value = o.status || 'pending';
+    statusSelect.dataset.status = statusSelect.value;
     statusSelect.addEventListener('change', () => {
+      statusSelect.dataset.status = statusSelect.value;
       socket.emit('order:edit', { id, fields: { status: statusSelect.value } });
     });
     tdStatus.appendChild(statusSelect);

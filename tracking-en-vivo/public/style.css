@@ -3,15 +3,18 @@
   --panel: #FFFFFF;
   --text: #2B211B;
   --muted: #8A7A6D;
-  --primary: #CE4424;
-  --primary-dark: #A6341A;
+  --primary: #6C5CE7;
+  --primary-dark: #4338CA;
   --border: #EAE0D5;
   --danger: #C1272D;
   --ok: #4C8C4A;
   --shadow: 0 1px 3px rgba(43, 33, 27, 0.07), 0 6px 18px rgba(43, 33, 27, 0.08);
   --shadow-lg: 0 10px 30px rgba(43, 33, 27, 0.16), 0 3px 10px rgba(43, 33, 27, 0.08);
-  --primary-glow: rgba(206, 68, 36, 0.25);
-  --primary-soft: #FBEAE1;
+  --primary-glow: rgba(108, 92, 231, 0.25);
+  --primary-soft: #E8E5FC;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -26,15 +29,63 @@
   --panel-dm: #241C17;
   --text-dm: #F5ECE3;
   --muted-dm: #B8A695;
-  --primary-dm: #F2724A;
-  --primary-hover-dm: #FF9068;
+  --primary-dm: #9B8FFF;
+  --primary-hover-dm: #B4AAFF;
   --border-dm: #3A2E27;
   --danger-dm: #E8776A;
   --ok-dm: #7FC48A;
   --shadow-dm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.45);
   --shadow-lg-dm: 0 12px 34px rgba(0, 0, 0, 0.5), 0 3px 12px rgba(0, 0, 0, 0.35);
-  --primary-glow-dm: rgba(242, 114, 74, 0.30);
-  --primary-soft-dm: rgba(242, 114, 74, 0.16);
+  --primary-glow-dm: rgba(155, 143, 255, 0.30);
+  --primary-soft-dm: rgba(155, 143, 255, 0.16);
+}
+
+/* Colores por rol — cada página se identifica con `<body class="role-*">`.
+   Admin (7 pantallas de gestión + login) usa el violeta de base de :root
+   sin tocar nada; acá solo se pisan --primary/-dark/-glow/-soft para las
+   otras dos audiencias, misma mecánica que la paleta oscura de arriba. */
+body.role-cliente {
+  --primary: #FF6B2C;
+  --primary-dark: #C2410C;
+  --primary-glow: rgba(255, 107, 44, 0.25);
+  --primary-soft: #FFE6D8;
+}
+
+body.role-delivery {
+  --primary: #1FAE6B;
+  --primary-dark: #157A4B;
+  --primary-glow: rgba(31, 174, 107, 0.25);
+  --primary-soft: #D9F3E6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) body.role-cliente {
+    --primary: #FF9068;
+    --primary-dark: #FFAB86;
+    --primary-glow: rgba(255, 144, 104, 0.30);
+    --primary-soft: rgba(255, 144, 104, 0.16);
+  }
+
+  :root:not([data-theme="light"]) body.role-delivery {
+    --primary: #4ADE95;
+    --primary-dark: #6EE7AE;
+    --primary-glow: rgba(74, 222, 149, 0.30);
+    --primary-soft: rgba(74, 222, 149, 0.16);
+  }
+}
+
+:root[data-theme="dark"] body.role-cliente {
+  --primary: #FF9068;
+  --primary-dark: #FFAB86;
+  --primary-glow: rgba(255, 144, 104, 0.30);
+  --primary-soft: rgba(255, 144, 104, 0.16);
+}
+
+:root[data-theme="dark"] body.role-delivery {
+  --primary: #4ADE95;
+  --primary-dark: #6EE7AE;
+  --primary-glow: rgba(74, 222, 149, 0.30);
+  --primary-soft: rgba(74, 222, 149, 0.16);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -76,7 +127,7 @@
 
 body {
   margin: 0;
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   background: var(--bg);
   color: var(--text);
@@ -402,7 +453,8 @@ button.small {
 .order-table th {
   text-align: left;
   color: var(--muted);
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-weight: 600;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -735,4 +787,62 @@ header.hero > #theme-toggle-btn:hover {
   padding: 14px 16px;
   text-align: left;
   font-weight: 600;
+}
+
+/* Estado del pedido (pedidos.js) — el <select> de estado se pinta como una
+   "badge" según data-status, para leer el estado de un vistazo en la tabla
+   sin depender solo del texto de la opción elegida. */
+.status-select {
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+}
+
+.status-select[data-status="pending"] {
+  background: #E8E5FC;
+  color: #4338CA;
+}
+
+.status-select[data-status="en_camino"] {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.status-select[data-status="entregado"] {
+  background: #D9F3E6;
+  color: #157A4B;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .status-select[data-status="pending"] {
+    background: rgba(155, 143, 255, 0.18);
+    color: #B4AAFF;
+  }
+
+  :root:not([data-theme="light"]) .status-select[data-status="en_camino"] {
+    background: rgba(251, 191, 36, 0.18);
+    color: #FCD34D;
+  }
+
+  :root:not([data-theme="light"]) .status-select[data-status="entregado"] {
+    background: rgba(74, 222, 149, 0.18);
+    color: #6EE7AE;
+  }
+}
+
+:root[data-theme="dark"] .status-select[data-status="pending"] {
+  background: rgba(155, 143, 255, 0.18);
+  color: #B4AAFF;
+}
+
+:root[data-theme="dark"] .status-select[data-status="en_camino"] {
+  background: rgba(251, 191, 36, 0.18);
+  color: #FCD34D;
+}
+
+:root[data-theme="dark"] .status-select[data-status="entregado"] {
+  background: rgba(74, 222, 149, 0.18);
+  color: #6EE7AE;
 }
