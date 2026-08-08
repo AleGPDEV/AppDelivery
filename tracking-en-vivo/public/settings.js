@@ -1,19 +1,18 @@
-// Botón "⚙ Configuración" compartido por las 7 páginas de admin — en vez de
-// duplicar el modal en cada HTML, este script se auto-monta: arma el botón,
-// lo mete en el <nav class="tabs"> de la página que lo cargue, e inyecta el
-// modal entero en <body>. Abre su propia conexión de socket (mismo criterio
-// que el resto de la app: cada script arma la suya).
-//
-// Todo envuelto en un IIFE a propósito: como los <script> clásicos comparten
-// el mismo scope global de la página, y CADA página ya declara sus propias
-// `const socket`/`let formConfig`/`function customFields()`, sin esto
-// colisionaría (SyntaxError en `const`/`let`, o pisaría en silencio las
-// funciones de la página anfitriona).
-(function () {
+// Botón "⚙ Configuración" compartido por las 7 vistas de admin — en vez de
+// duplicar el modal en cada una, este script se auto-monta: arma el botón,
+// lo mete en el <nav class="tabs"> del shell, e inyecta el modal entero en
+// <body>. Reusa el socket único de Store (antes abría su propia conexión
+// independiente — con la SPA eso significaba dos sockets por sesión, uno del
+// shell/Store y otro acá; ya no hace falta, es un <script type="module">
+// como el resto de la infraestructura de la SPA, así que no necesita el IIFE
+// manual que usaba antes para no chocar con los `const socket` de cada
+// página clásica (ese problema ya no existe: los módulos tienen su propio
+// scope real).
+import { Store } from '/js/store.js';
 
-const socket = io();
+const socket = Store.socket;
 
-let formConfig = { paymentMethods: [], customFields: [] };
+let formConfig = Store.getFormConfig();
 
 const settingsBtn = document.createElement('button');
 settingsBtn.id = 'settings-btn';
@@ -174,9 +173,6 @@ const BUILTIN_FIELD_LABELS = {
   amount: 'Monto',
 };
 
-// Celular/Nombre/Nº de pedido/Monto — mostrar/ocultar y marcar obligatorio,
-// igual que un campo personalizado. El tipo de envío (Retira/Envío) no
-// aparece acá: ese es siempre obligatorio, no es un toggle (ver "Reglas fijas").
 function renderBuiltinFieldConfig() {
   builtinFieldConfigListEl.innerHTML = '';
 
@@ -322,12 +318,16 @@ function renderFieldConfig() {
   fieldConfigListEl.appendChild(addRow);
 }
 
-socket.on('form-config:snapshot', (cfg) => {
-  formConfig = cfg || {};
+Store.on('form-config:snapshot', (e) => {
+  formConfig = e.detail || {};
   renderBuiltinFieldConfig();
   renderPaymentMethods();
   renderFieldConfig();
 });
+
+renderBuiltinFieldConfig();
+renderPaymentMethods();
+renderFieldConfig();
 
 pwBtnEl.addEventListener('click', async () => {
   const currentPassword = pwCurrentEl.value;
@@ -352,5 +352,3 @@ pwBtnEl.addEventListener('click', async () => {
   }
   pwBtnEl.disabled = false;
 });
-
-})();
