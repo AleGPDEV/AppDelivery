@@ -21,9 +21,20 @@
   </header>
 
   <main class="wide">
-    <nav id="category-nav" class="category-nav" hidden></nav>
     <p id="closed-msg" class="status error" style="display:none;">No estamos aceptando pedidos en este momento. Volvé a intentar más tarde.</p>
-    <div id="catalog-container"></div>
+
+    <div id="categories-view">
+      <h2 class="catalog-view-title">Categorías</h2>
+      <div id="category-grid" class="category-grid"></div>
+    </div>
+
+    <div id="products-view" hidden>
+      <div class="products-view-header">
+        <button id="back-to-categories-btn" type="button" class="icon-btn" aria-label="Volver a categorías">←</button>
+        <h2 id="products-view-title" class="catalog-view-title"></h2>
+      </div>
+      <div id="products-grid" class="catalog-grid"></div>
+    </div>
   </main>
 
   <button id="cart-fab-btn" type="button" class="primary cart-fab" style="display:none;">🛒 Ver carrito</button>

@@ -1,6 +1,10 @@
 const closedMsgEl = document.getElementById('closed-msg');
-const catalogContainerEl = document.getElementById('catalog-container');
-const categoryNavEl = document.getElementById('category-nav');
+const categoriesViewEl = document.getElementById('categories-view');
+const categoryGridEl = document.getElementById('category-grid');
+const productsViewEl = document.getElementById('products-view');
+const productsViewTitleEl = document.getElementById('products-view-title');
+const productsGridEl = document.getElementById('products-grid');
+const backToCategoriesBtn = document.getElementById('back-to-categories-btn');
 
 const cartFabBtn = document.getElementById('cart-fab-btn');
 const cartOverlay = document.getElementById('cart-overlay');
@@ -34,6 +38,13 @@ const products = new Map();
 let formConfig = { customFields: [] };
 let dayOpen = false;
 
+// 'categories' = grilla de tarjetas con foto (pantalla inicial) — 'products'
+// = productos de una sola categoría, con volver. Sin pushState/URL propia a
+// propósito, es solo un toggle de qué div se ve — no hace falta más para
+// esta pantalla pública.
+let view = 'categories';
+let activeCategoryId = null;
+
 const CART_KEY = 'tracking.cart';
 function loadCart() {
   try { return JSON.parse(localStorage.getItem(CART_KEY)) || {}; } catch { return {}; }
@@ -47,7 +58,10 @@ function setQty(productId, qty) {
   if (qty <= 0) delete cart[productId];
   else cart[productId] = qty;
   saveCart();
-  renderCatalog();
+  // Los steppers de +/- solo existen en la vista de productos de una
+  // categoría (la grilla de categorías no tiene ninguno) — alcanza con
+  // rehacer esa grilla, no toda la vista.
+  if (view === 'products') renderProductsGrid();
   renderCart();
   updateCartFab();
 }
@@ -79,107 +93,130 @@ function sortedCategories() {
     .sort((a, b) => a[1].sortOrder - b[1].sortOrder);
 }
 
-function renderCategoryNav(sortedCats) {
-  categoryNavEl.innerHTML = '';
-  if (sortedCats.length <= 1) {
-    categoryNavEl.hidden = true;
-    return;
+function categoryHasVisibleProducts(categoryId) {
+  return Array.from(products.values()).some((p) => p.categoryId === categoryId && p.visible !== false);
+}
+
+function buildProductCard(id, p) {
+  const card = document.createElement('div');
+  card.className = 'product-card';
+
+  if (p.imageUrl) {
+    const img = document.createElement('img');
+    img.src = p.imageUrl;
+    img.alt = p.name;
+    card.appendChild(img);
+  } else {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'no-image';
+    placeholder.textContent = '🍣';
+    card.appendChild(placeholder);
   }
-  categoryNavEl.hidden = false;
-  sortedCats.forEach(([categoryId, c]) => {
-    const target = document.getElementById(`cat-${categoryId}`);
-    if (!target) return; // categoría sin productos visibles, no se renderizó su section
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'category-chip';
-    chip.textContent = c.name;
-    chip.addEventListener('click', () => target.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-    categoryNavEl.appendChild(chip);
-  });
+
+  const name = document.createElement('div');
+  name.className = 'product-name';
+  name.textContent = p.name;
+  card.appendChild(name);
+
+  if (p.description) {
+    const desc = document.createElement('div');
+    desc.className = 'product-description';
+    desc.textContent = p.description;
+    card.appendChild(desc);
+  }
+
+  const price = document.createElement('div');
+  price.className = 'product-price';
+  price.textContent = `$${Number(p.price || 0).toFixed(2)}`;
+  card.appendChild(price);
+
+  const stepper = document.createElement('div');
+  stepper.className = 'qty-stepper';
+  const qty = cart[id] || 0;
+
+  const minusBtn = document.createElement('button');
+  minusBtn.type = 'button';
+  minusBtn.className = 'small';
+  minusBtn.textContent = '−';
+  minusBtn.addEventListener('click', () => setQty(id, (cart[id] || 0) - 1));
+
+  const qtySpan = document.createElement('span');
+  qtySpan.textContent = qty;
+
+  const plusBtn = document.createElement('button');
+  plusBtn.type = 'button';
+  plusBtn.className = 'primary small';
+  plusBtn.textContent = '+';
+  plusBtn.addEventListener('click', () => setQty(id, (cart[id] || 0) + 1));
+
+  stepper.append(minusBtn, qtySpan, plusBtn);
+  card.appendChild(stepper);
+
+  return card;
 }
 
-function renderCatalog() {
-  catalogContainerEl.innerHTML = '';
-  const cats = sortedCategories();
-  cats.forEach(([categoryId, c]) => {
-    const items = Array.from(products.entries())
-      .filter(([, p]) => p.categoryId === categoryId && p.visible !== false)
-      .sort((a, b) => a[1].sortOrder - b[1].sortOrder);
-    if (items.length === 0) return;
-
-    const section = document.createElement('section');
-    section.className = 'panel';
-    section.id = `cat-${categoryId}`;
-    const heading = document.createElement('h2');
-    heading.textContent = c.name;
-    section.appendChild(heading);
-
-    const grid = document.createElement('div');
-    grid.className = 'catalog-grid';
-
-    items.forEach(([id, p]) => {
-      const card = document.createElement('div');
-      card.className = 'product-card';
-
-      if (p.imageUrl) {
+function renderCategoriesGrid() {
+  categoryGridEl.innerHTML = '';
+  sortedCategories()
+    .filter(([id]) => categoryHasVisibleProducts(id))
+    .forEach(([id, c]) => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'category-card';
+      if (c.imageUrl) {
         const img = document.createElement('img');
-        img.src = p.imageUrl;
-        img.alt = p.name;
+        img.src = c.imageUrl;
+        img.alt = '';
         card.appendChild(img);
-      } else {
-        const placeholder = document.createElement('div');
-        placeholder.className = 'no-image';
-        placeholder.textContent = '🍣';
-        card.appendChild(placeholder);
       }
-
-      const name = document.createElement('div');
-      name.className = 'product-name';
-      name.textContent = p.name;
-      card.appendChild(name);
-
-      if (p.description) {
-        const desc = document.createElement('div');
-        desc.className = 'product-description';
-        desc.textContent = p.description;
-        card.appendChild(desc);
-      }
-
-      const price = document.createElement('div');
-      price.className = 'product-price';
-      price.textContent = `$${Number(p.price || 0).toFixed(2)}`;
-      card.appendChild(price);
-
-      const stepper = document.createElement('div');
-      stepper.className = 'qty-stepper';
-      const qty = cart[id] || 0;
-
-      const minusBtn = document.createElement('button');
-      minusBtn.type = 'button';
-      minusBtn.className = 'small';
-      minusBtn.textContent = '−';
-      minusBtn.addEventListener('click', () => setQty(id, (cart[id] || 0) - 1));
-
-      const qtySpan = document.createElement('span');
-      qtySpan.textContent = qty;
-
-      const plusBtn = document.createElement('button');
-      plusBtn.type = 'button';
-      plusBtn.className = 'primary small';
-      plusBtn.textContent = '+';
-      plusBtn.addEventListener('click', () => setQty(id, (cart[id] || 0) + 1));
-
-      stepper.append(minusBtn, qtySpan, plusBtn);
-      card.appendChild(stepper);
-
-      grid.appendChild(card);
+      const overlay = document.createElement('div');
+      overlay.className = 'category-card-overlay';
+      card.appendChild(overlay);
+      const label = document.createElement('span');
+      label.className = 'category-card-name';
+      label.textContent = c.name;
+      card.appendChild(label);
+      card.addEventListener('click', () => showProductsView(id));
+      categoryGridEl.appendChild(card);
     });
-
-    section.appendChild(grid);
-    catalogContainerEl.appendChild(section);
-  });
-  renderCategoryNav(cats);
 }
+
+function renderProductsGrid() {
+  const c = categories.get(activeCategoryId);
+  productsViewTitleEl.textContent = c ? c.name : '';
+  productsGridEl.innerHTML = '';
+  Array.from(products.entries())
+    .filter(([, p]) => p.categoryId === activeCategoryId && p.visible !== false)
+    .sort((a, b) => a[1].sortOrder - b[1].sortOrder)
+    .forEach(([id, p]) => productsGridEl.appendChild(buildProductCard(id, p)));
+}
+
+function render() {
+  if (view === 'products') {
+    categoriesViewEl.hidden = true;
+    productsViewEl.hidden = false;
+    renderProductsGrid();
+  } else {
+    productsViewEl.hidden = true;
+    categoriesViewEl.hidden = false;
+    renderCategoriesGrid();
+  }
+}
+
+function showCategoriesView() {
+  view = 'categories';
+  activeCategoryId = null;
+  render();
+}
+
+function showProductsView(categoryId) {
+  view = 'products';
+  activeCategoryId = categoryId;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+backToCategoriesBtn.addEventListener('click', showCategoriesView);
 
 function renderCart() {
   cartItemsEl.innerHTML = '';
@@ -334,7 +371,7 @@ checkoutSubmitBtn.addEventListener('click', async () => {
     }
     cart = {};
     saveCart();
-    renderCatalog();
+    if (view === 'products') renderProductsGrid();
     updateCartFab();
     checkoutFormEl.style.display = 'none';
     checkoutConfirmationEl.style.display = '';
@@ -363,7 +400,14 @@ socket.on('catalog:snapshot', ({ categories: catList, products: prodList }) => {
     if (!p || p.visible === false) delete cart[id];
   });
   saveCart();
-  renderCatalog();
+  // Si estabas viendo una categoría que un admin acaba de vaciar/ocultar/
+  // borrar mientras tenías la página abierta, no te deja mirando una
+  // pantalla de productos rota — vuelve sola a la grilla de categorías.
+  if (view === 'products' && !categoryHasVisibleProducts(activeCategoryId)) {
+    showCategoriesView();
+  } else {
+    render();
+  }
   renderCart();
   updateCartFab();
 });

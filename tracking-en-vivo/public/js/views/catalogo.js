@@ -134,6 +134,50 @@ function mount(root) {
       row.style.gap = '10px';
       row.style.padding = '6px 0';
 
+      const photoLabel = document.createElement('label');
+      photoLabel.title = 'Foto de la categoría (se usa como fondo de la tarjeta en el pedido online)';
+      photoLabel.style.flexShrink = '0';
+      photoLabel.style.cursor = 'pointer';
+      photoLabel.style.width = '40px';
+      photoLabel.style.height = '40px';
+      photoLabel.style.borderRadius = 'var(--radius-sm)';
+      photoLabel.style.overflow = 'hidden';
+      photoLabel.style.display = 'flex';
+      photoLabel.style.alignItems = 'center';
+      photoLabel.style.justifyContent = 'center';
+      photoLabel.style.background = 'var(--bg)';
+      photoLabel.style.border = '1px solid var(--border)';
+      if (c.imageUrl) {
+        const thumb = document.createElement('img');
+        thumb.src = c.imageUrl;
+        thumb.alt = '';
+        thumb.style.width = '100%';
+        thumb.style.height = '100%';
+        thumb.style.objectFit = 'cover';
+        photoLabel.appendChild(thumb);
+      } else {
+        photoLabel.textContent = '🖼️';
+        photoLabel.style.fontSize = '1.1rem';
+      }
+      const photoInput = document.createElement('input');
+      photoInput.type = 'file';
+      photoInput.accept = 'image/*';
+      photoInput.style.display = 'none';
+      photoInput.addEventListener('change', async () => {
+        const file = photoInput.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('image', file);
+        try {
+          const res = await fetch(`/api/categories/${id}/image`, { method: 'POST', body: formData });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'No se pudo subir la foto.');
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+      photoLabel.appendChild(photoInput);
+
       const nameInput = document.createElement('input');
       nameInput.type = 'text';
       nameInput.value = c.name;
@@ -174,7 +218,7 @@ function mount(root) {
       delBtn.title = hasProducts ? 'Primero mové o borrá los productos de esta categoría.' : 'Eliminar categoría';
       delBtn.addEventListener('click', () => socket.emit('category:remove', { id }));
 
-      row.append(nameInput, orderInput, visibleLabel, delBtn);
+      row.append(photoLabel, nameInput, orderInput, visibleLabel, delBtn);
       categoryListEl.appendChild(row);
     });
   }

@@ -775,32 +775,91 @@ header.hero > #theme-toggle-btn:hover {
   margin-bottom: 8px;
 }
 
-.category-nav {
-  position: sticky;
-  top: 0;
-  z-index: 500;
+.catalog-view-title {
+  margin: 0 0 14px;
+}
+
+/* Grilla de categorías (pantalla inicial de pedido-cliente.html) — tarjetas
+   con foto de fondo, degradé oscuro abajo para que el nombre sea legible
+   sobre cualquier imagen, sin depender de un texto con sombra nada más. */
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.category-card {
+  position: relative;
+  height: 140px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--primary-soft), var(--panel));
+  box-shadow: var(--shadow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.category-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.category-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.category-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.1) 55%, transparent 100%);
+}
+
+.category-card-name {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.05rem;
+  text-align: left;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Vista de productos de una categoría (después de tocar una tarjeta) */
+.products-view-header {
   display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 12px 20px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-  margin: 0 -20px 4px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
-.category-chip {
-  width: auto;
+.products-view-header .catalog-view-title {
+  margin: 0;
+}
+
+.icon-btn {
   flex-shrink: 0;
-  padding: 8px 16px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border);
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
   background: var(--panel);
+  border: 1px solid var(--border);
   color: var(--text);
-  font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.category-chip:hover {
+.icon-btn:hover {
   border-color: var(--primary);
   color: var(--primary);
 }

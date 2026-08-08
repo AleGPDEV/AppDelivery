@@ -233,7 +233,7 @@ function catalogSnapshot() {
 }
 
 function categoryRow(id, c) {
-  return { id, name: c.name, sort_order: c.sortOrder, visible: c.visible };
+  return { id, name: c.name, sort_order: c.sortOrder, visible: c.visible, image_url: c.imageUrl || null };
 }
 
 function productRow(id, p) {
@@ -311,7 +311,7 @@ async function loadCatalog() {
   const { data: catRows, error: catError } = await supabase.from('categories').select('*');
   if (catError) { console.error('Error cargando categorías de Supabase:', catError.message); return; }
   catRows.forEach((row) => {
-    categories.set(row.id, { name: row.name, sortOrder: row.sort_order, visible: row.visible });
+    categories.set(row.id, { name: row.name, sortOrder: row.sort_order, visible: row.visible, imageUrl: row.image_url || null });
   });
 
   const { data: prodRows, error: prodError } = await supabase.from('products').select('*');
@@ -671,6 +671,28 @@ app.post('/api/products/:id/image', requireAuth, productImageUpload.single('imag
   persistProduct(req.params.id, p);
   io.emit('catalog:snapshot', catalogSnapshot());
   res.json({ ok: true, imageUrl: p.imageUrl });
+});
+
+// Misma mecánica que la de arriba, para la foto de portada de una categoría
+// (la grilla de categorías del pedido online la usa como fondo de cada
+// tarjeta) — reusa el mismo bucket "product-images" con un prefijo
+// "category-" en el nombre del archivo, en vez de pedir un bucket nuevo.
+app.post('/api/categories/:id/image', requireAuth, productImageUpload.single('image'), async (req, res) => {
+  const c = categories.get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Categoría no encontrada.' });
+  if (!req.file) return res.status(400).json({ error: 'Falta la imagen.' });
+
+  const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().slice(0, 10);
+  const path = `category-${req.params.id}-${Date.now()}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from('product-images')
+    .upload(path, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
+  if (uploadError) return res.status(500).json({ error: uploadError.message });
+
+  const { data } = supabase.storage.from('product-images').getPublicUrl(path);
+  c.imageUrl = data.publicUrl;
+  persistCategory(req.params.id, c);
+  io.emit('catalog:snapshot', catalogSnapshot());
+  res.json({ ok: true, imageUrl: c.imageUrl });
 });
 
 app.post('/api/admin/reset-today', requireAuth, async (req, res) => {
