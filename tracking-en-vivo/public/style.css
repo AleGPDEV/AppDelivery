@@ -378,13 +378,140 @@ button.small {
   border: 1px solid var(--border);
 }
 
+/* Dashboard: mapa a la izquierda, tarjetas de rendición por delivery a la
+   derecha (fusionado con lo que antes era la pestaña "Rendición de caja").
+   En pantallas angostas se apilan (mapa arriba, tarjetas abajo). */
+.dashboard-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.dashboard-map-panel {
+  flex: 1 1 42%;
+  min-width: 320px;
+  position: sticky;
+  top: 16px;
+}
+
+.dashboard-drivers-panel {
+  flex: 1 1 58%;
+  min-width: 320px;
+}
+
+.dashboard-drivers-panel #driver-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-layout {
+    flex-direction: column;
+  }
+  .dashboard-map-panel {
+    position: static;
+    width: 100%;
+  }
+}
+
+.driver-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.driver-card-header strong {
+  font-size: 1.05rem;
+}
+
+.driver-card-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.driver-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.driver-stat label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0;
+}
+
+.driver-stat .value,
+.driver-stat strong {
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.driver-stat input {
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+
+.driver-card-orders {
+  margin-top: 14px;
+}
+
+.driver-card-orders h4 {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.driver-card-orders ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.driver-card-orders li {
+  font-size: 0.9rem;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.driver-card-orders li.empty {
+  color: var(--muted);
+  background: none;
+  padding: 0;
+}
+
+.driver-card-orders li.clickable {
+  cursor: pointer;
+}
+
+.driver-card-orders li.clickable:hover {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
 .driver-count {
   color: var(--muted);
   font-size: 0.85rem;
   margin: 0 0 10px;
 }
 
-.driver-list,
 .order-list {
   list-style: none;
   margin: 0;
@@ -392,27 +519,6 @@ button.small {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.driver-list li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.95rem;
-}
-
-.driver-list li.empty {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.swatch {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 1px var(--border);
 }
 
 .order-list li {

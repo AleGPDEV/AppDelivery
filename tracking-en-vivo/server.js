@@ -41,7 +41,7 @@ function verifyToken(token) {
 // login.html itself stay public. The real security boundary is the socket
 // handler checks below (socket.data.isAdmin), this is just so an anonymous
 // visitor lands on the login screen instead of a blank admin page.
-const PROTECTED_PAGES = ['/pedidos.html', '/dashboard.html', '/caja.html', '/analiticas.html', '/catalogo.html', '/proveedores.html'];
+const PROTECTED_PAGES = ['/pedidos.html', '/dashboard.html', '/analiticas.html', '/catalogo.html', '/proveedores.html'];
 
 app.use((req, res, next) => {
   if (!AUTH_DISABLED && PROTECTED_PAGES.includes(req.path) && !verifyToken(getToken(req))) {
@@ -117,7 +117,8 @@ let nextSeq = 1;
 // driverId -> { stops: [{id,lat,lng,label,orderNumber}], latlngs: [[lat,lng],...], distanceKm, durationMin, updatedAt }
 const routes = new Map();
 // driverId -> number — el efectivo con el que salió ese delivery, lo carga el
-// admin desde caja.html y driver.html solo lo muestra (de solo lectura ahí).
+// admin desde la tarjeta de rendición en dashboard.html y driver.html solo
+// lo muestra (de solo lectura ahí).
 // Cacheado en memoria (como drivers/routes) pero SÍ persistido en Supabase
 // (tabla driver_cash_starts) — antes era solo memoria, y un reinicio del
 // server (Render duerme el free tier tras 15 min sin tráfico) lo borraba en
@@ -281,6 +282,7 @@ function expenseRow(id, e) {
     payment_method_is_cash: !!e.paymentMethodIsCash,
     business_day_id: e.businessDayId || null,
     created_at: new Date(e.createdAt).toISOString(),
+    driver_id: e.driverId || null,
   };
 }
 
@@ -302,6 +304,7 @@ async function loadExpenses() {
       paymentMethodIsCash: row.payment_method_is_cash,
       businessDayId: row.business_day_id,
       createdAt: new Date(row.created_at).getTime(),
+      driverId: row.driver_id || null,
     });
   });
   console.log(`Gastos cargados desde Supabase: ${expenses.size}`);
@@ -882,7 +885,7 @@ io.on('connection', (socket) => {
     io.emit('form-config:snapshot', formConfig);
   });
 
-  // El admin carga cuánto efectivo le dio a un delivery al salir (caja.html);
+  // El admin carga cuánto efectivo le dio a un delivery al salir (tarjeta de rendición en dashboard.html);
   // driver.html solo lo muestra, no puede editarlo — evita que el número que
   // hay que rendir al final dependa de lo que el delivery diga que le dieron.
   socket.on('driver:cash-start', ({ driverId, amount }) => {
@@ -971,7 +974,7 @@ io.on('connection', (socket) => {
   // asociarlo y restarlo del efectivo esperado al cerrar (ver
   // /api/business-day/end). `paymentMethodName`/`isCash` se copian de la
   // config actual y quedan fijos en el gasto (ver comentario en el Map).
-  socket.on('expense:add', ({ description, amount, paymentMethodId }) => {
+  socket.on('expense:add', ({ description, amount, paymentMethodId, driverId }) => {
     if (!socket.data.isAdmin || !description || typeof amount !== 'number' || !openBusinessDay) return;
     const method = formConfig.paymentMethods.find((m) => m.id === paymentMethodId);
     const id = crypto.randomUUID();
@@ -983,6 +986,12 @@ io.on('connection', (socket) => {
       paymentMethodIsCash: method ? method.isCash : false,
       businessDayId: openBusinessDay.id,
       createdAt: Date.now(),
+      // Opcional: si el gasto se pagó con la plata que ya tenía el delivery
+      // encima (ej. "comprale tal cosa con la plata que llevás"), se le
+      // resta a ese delivery en su "Total a entregar" — ver dashboard.js.
+      // Sin asignar (null) sigue siendo un gasto del negocio en general, no
+      // afecta a ningún delivery en particular.
+      driverId: driverId || null,
     };
     expenses.set(id, entry);
     persistExpense(id, entry);
@@ -1108,8 +1117,7 @@ async function start() {
     console.log(`Login:         http://localhost:${PORT}/login.html`);
     console.log(`Delivery:      http://localhost:${PORT}/driver.html`);
     console.log(`Pedidos:       http://localhost:${PORT}/pedidos.html (incluye "+ Nuevo pedido")`);
-    console.log(`Mapa:          http://localhost:${PORT}/dashboard.html`);
-    console.log(`Rendición:     http://localhost:${PORT}/caja.html`);
+    console.log(`Mapa:          http://localhost:${PORT}/dashboard.html (incluye rendición por delivery)`);
     console.log(`Analíticas:    http://localhost:${PORT}/analiticas.html`);
     console.log(`Catálogo:      http://localhost:${PORT}/catalogo.html`);
     console.log(`Proveedores:   http://localhost:${PORT}/proveedores.html`);

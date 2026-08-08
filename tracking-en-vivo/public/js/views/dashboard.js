@@ -3,17 +3,25 @@ import { Router } from '/js/router.js';
 import { recomputeRouteForDriver } from '/js/route-helper.js';
 import { createDriverLabel } from '/js/driver-label.js';
 
+// "Rendición de caja" ya no es una pestaña aparte — se fusionó acá, al lado
+// del mapa: una tarjeta por delivery con el mismo desglose que tenía
+// caja.js (cambio inicial, un total por método de pago, gastos asignados,
+// total a entregar) más la lista de sus pedidos todavía sin entregar,
+// clickeable para centrar el mapa en ese pedido.
 const template = `
-<main>
-  <section class="panel">
-    <h2>Deliverys conectados</h2>
-    <ul id="driver-list" class="driver-list"></ul>
-  </section>
-
-  <section class="panel">
-    <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
-    <div id="map"></div>
-  </section>
+<main class="wide">
+  <div class="dashboard-layout">
+    <section class="panel dashboard-map-panel">
+      <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
+      <div id="map"></div>
+    </section>
+    <section class="dashboard-drivers-panel">
+      <h2>Rendición por delivery</h2>
+      <p class="hint">Se arma sola con los pedidos que cada delivery entrega (importe + forma de pago elegida al momento de entregar). "Cambio inicial" lo cargás vos acá y se ve en el celular del delivery (de solo lectura ahí). "Gastos asignados" son los pagos a proveedores que cargaste a nombre de este delivery en "Proveedores" — se restan porque salieron de la plata que ya tenía encima. "Total a entregar" = cambio inicial + lo cobrado en efectivo − gastos asignados.</p>
+      <p id="cash-empty" class="hint" hidden>Todavía no hay entregas registradas.</p>
+      <div id="driver-cards"></div>
+    </section>
+  </div>
 </main>
 `;
 
@@ -132,6 +140,16 @@ function orderColor(drivers, o) {
   return (o.assignedTo && drivers.has(o.assignedTo)) ? drivers.get(o.assignedTo).color : UNASSIGNED_COLOR;
 }
 
+// Helpers de la rendición (portados de caja.js tal cual, son funciones puras).
+function sumBy(list, predicate) {
+  const filtered = list.filter(predicate);
+  return { count: filtered.length, total: filtered.reduce((sum, e) => sum + (e.amount || 0), 0) };
+}
+
+function fmtCell({ count, total }) {
+  return `${count} — $${total.toFixed(2)}`;
+}
+
 // Token de "generación": unmount() lo incrementa, así que si el usuario
 // navega a otra pestaña mientras todavía se está esperando a que cargue
 // Google Maps (primera vez que se visita esta vista en la sesión), la
@@ -154,7 +172,8 @@ function teardownActive() {
 async function mount(root) {
   const myGeneration = ++currentGeneration;
   const driverCountEl = root.querySelector('#driver-count');
-  const driverListEl = root.querySelector('#driver-list');
+  const driverCardsEl = root.querySelector('#driver-cards');
+  const cashEmptyEl = root.querySelector('#cash-empty');
 
   const maps = await loadGoogleMaps();
   if (myGeneration !== currentGeneration) return; // se navegó a otra vista mientras cargaba
@@ -172,7 +191,9 @@ async function mount(root) {
   const drivers = new Map();
   const orders = new Map();
   const routeLines = new Map();
+  const driverCards = new Map(); // driverId -> refs de la tarjeta de rendición
   let hasFitBounds = false;
+  let formConfig = Store.getFormConfig();
 
   const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
 
@@ -210,19 +231,6 @@ async function mount(root) {
       : `${drivers.size} delivery${drivers.size === 1 ? '' : 's'} en línea.`;
   }
 
-  function renderDrivers() {
-    driverListEl.innerHTML = '';
-    if (drivers.size === 0) {
-      driverListEl.innerHTML = '<li class="empty">Ningún delivery está compartiendo su ubicación ahora mismo.</li>';
-      return;
-    }
-    drivers.forEach((d) => {
-      const li = document.createElement('li');
-      li.innerHTML = `<span class="swatch" style="background:${d.color}"></span> ${d.name}`;
-      driverListEl.appendChild(li);
-    });
-  }
-
   function refreshOrderColorsFor(driverId) {
     orders.forEach((o) => {
       if (o.assignedTo === driverId && o.marker) {
@@ -248,8 +256,8 @@ async function mount(root) {
       fitBoundsToEverything();
     }
     updateCount();
-    renderDrivers();
     refreshOrderColorsFor(d.id);
+    renderDriverCards();
   }
 
   function removeDriver(id) {
@@ -261,7 +269,7 @@ async function mount(root) {
     const line = routeLines.get(id);
     if (line) { line.setMap(null); routeLines.delete(id); }
     updateCount();
-    renderDrivers();
+    renderDriverCards();
   }
 
   function upsertOrder(o) {
@@ -291,6 +299,7 @@ async function mount(root) {
     } else {
       orders.set(o.id, { ...o, marker: null, infoWindow: null });
     }
+    renderDriverCards();
   }
 
   function removeOrderPin(id) {
@@ -299,6 +308,7 @@ async function mount(root) {
       if (existing.marker) existing.marker.setMap(null);
       orders.delete(id);
     }
+    renderDriverCards();
   }
 
   function upsertRoute(r) {
@@ -318,6 +328,205 @@ async function mount(root) {
     if (line) { line.setMap(null); routeLines.delete(driverId); }
   }
 
+  // ---------- Rendición por delivery (portado de caja.js) ----------
+
+  function pendingDeliveries(driverId) {
+    return Array.from(Store.getOrders().values()).filter((o) => o.assignedTo === driverId && o.status === 'entregado' && !o.reconciledAt);
+  }
+
+  function assignedActiveOrders(driverId) {
+    return Array.from(Store.getOrders().values()).filter((o) => o.assignedTo === driverId && o.status !== 'entregado' && !o.archivedAt);
+  }
+
+  function cashExpensesForDriver(driverId) {
+    return Array.from(Store.getExpenses().values())
+      .filter((e) => e.driverId === driverId)
+      .reduce((sum, e) => sum + (e.amount || 0), 0);
+  }
+
+  function focusOrderOnMap(orderId) {
+    const o = orders.get(orderId);
+    if (!o || !o.marker) return;
+    map.panTo(o.marker.getPosition());
+    o.infoWindow.open({ anchor: o.marker, map });
+  }
+
+  function statCell(container, labelText) {
+    const wrap = document.createElement('div');
+    wrap.className = 'driver-stat';
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    wrap.appendChild(label);
+    container.appendChild(wrap);
+    return wrap;
+  }
+
+  // Arma (o rearma, si cambió la lista de métodos de pago en Ajustes) las
+  // celdas de la tarjeta — separado de ensureDriverCard porque hay que poder
+  // rehacer esto solo para todas las tarjetas ya existentes sin recrearlas.
+  function buildStatCells(driverId, refs) {
+    refs.statsEl.innerHTML = '';
+    refs.methodCells.clear();
+
+    const cambioWrap = statCell(refs.statsEl, 'Cambio inicial');
+    const cambioInput = document.createElement('input');
+    cambioInput.type = 'text';
+    cambioInput.placeholder = '$ 0,00';
+    cambioInput.addEventListener('input', () => {
+      const amount = Geo.parseAmount(cambioInput.value) || 0;
+      Store.socket.emit('driver:cash-start', { driverId, amount });
+      updateDriverCard(driverId);
+    });
+    cambioWrap.appendChild(cambioInput);
+    MoneyCounter.attach(cambioInput);
+    refs.cambioInput = cambioInput;
+
+    formConfig.paymentMethods.forEach((m) => {
+      const wrap = statCell(refs.statsEl, m.name);
+      const valueEl = document.createElement('span');
+      valueEl.className = 'value';
+      wrap.appendChild(valueEl);
+      refs.methodCells.set(m.id, valueEl);
+    });
+
+    const ventasWrap = statCell(refs.statsEl, 'Ventas totales');
+    const ventasValueEl = document.createElement('span');
+    ventasValueEl.className = 'value';
+    ventasWrap.appendChild(ventasValueEl);
+    refs.ventasValueEl = ventasValueEl;
+
+    const gastosWrap = statCell(refs.statsEl, 'Gastos asignados');
+    const gastosValueEl = document.createElement('span');
+    gastosValueEl.className = 'value';
+    gastosWrap.appendChild(gastosValueEl);
+    refs.gastosValueEl = gastosValueEl;
+
+    const totalWrap = statCell(refs.statsEl, 'Total a entregar');
+    const totalValueEl = document.createElement('strong');
+    totalWrap.appendChild(totalValueEl);
+    refs.totalValueEl = totalValueEl;
+  }
+
+  function ensureDriverCard(driverId) {
+    const existing = driverCards.get(driverId);
+    if (existing) return existing;
+
+    const card = document.createElement('div');
+    card.className = 'panel driver-card';
+
+    const header = document.createElement('div');
+    header.className = 'driver-card-header';
+    const nameEl = document.createElement('strong');
+    header.appendChild(nameEl);
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'danger small';
+    clearBtn.textContent = 'Cerrar rendición';
+    clearBtn.addEventListener('click', () => {
+      Store.socket.emit('driver:clear-log', { driverId });
+      Store.socket.emit('driver:cash-start', { driverId, amount: 0 });
+      updateDriverCard(driverId);
+    });
+    header.appendChild(clearBtn);
+    card.appendChild(header);
+
+    const statsEl = document.createElement('div');
+    statsEl.className = 'driver-card-stats';
+    card.appendChild(statsEl);
+
+    const ordersSection = document.createElement('div');
+    ordersSection.className = 'driver-card-orders';
+    const ordersTitle = document.createElement('h4');
+    ordersTitle.textContent = 'Pedidos asignados';
+    ordersSection.appendChild(ordersTitle);
+    const ordersList = document.createElement('ul');
+    ordersSection.appendChild(ordersList);
+    card.appendChild(ordersSection);
+
+    driverCardsEl.appendChild(card);
+
+    const refs = { card, nameEl, statsEl, ordersList, methodCells: new Map() };
+    driverCards.set(driverId, refs);
+    buildStatCells(driverId, refs);
+    return refs;
+  }
+
+  function updateDriverCard(driverId) {
+    const refs = ensureDriverCard(driverId);
+    const log = pendingDeliveries(driverId);
+    const cashStart = Store.getCashStarts().get(driverId) || 0;
+    const gastos = cashExpensesForDriver(driverId);
+    let cashMethodsTotal = 0;
+
+    refs.nameEl.textContent = `${driverLabel(driverId)} (${log.length} sin rendir)`;
+    let ventasTotal = 0;
+    formConfig.paymentMethods.forEach((m) => {
+      const cell = sumBy(log, (e) => e.paymentMethod === m.name);
+      const el = refs.methodCells.get(m.id);
+      if (el) el.textContent = fmtCell(cell);
+      if (m.isCash) cashMethodsTotal += cell.total;
+      ventasTotal += cell.total;
+    });
+    if (refs.ventasValueEl) refs.ventasValueEl.textContent = `$${ventasTotal.toFixed(2)}`;
+    if (refs.gastosValueEl) refs.gastosValueEl.textContent = gastos > 0 ? `-$${gastos.toFixed(2)}` : '$0.00';
+
+    const debe = cashMethodsTotal + cashStart - gastos;
+    if (refs.totalValueEl) refs.totalValueEl.textContent = `$${debe.toFixed(2)}`;
+    if (refs.cambioInput && document.activeElement !== refs.cambioInput) refs.cambioInput.value = cashStart || '';
+
+    refs.ordersList.innerHTML = '';
+    const pending = assignedActiveOrders(driverId);
+    if (pending.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'Ningún pedido asignado todavía.';
+      refs.ordersList.appendChild(li);
+    } else {
+      pending.forEach((o) => {
+        const li = document.createElement('li');
+        li.textContent = `Pedido #${o.orderNumber || o.seq}`;
+        if (o.lat != null) {
+          li.classList.add('clickable');
+          li.title = 'Ver en el mapa';
+          li.addEventListener('click', () => focusOrderOnMap(o.id));
+        }
+        refs.ordersList.appendChild(li);
+      });
+    }
+  }
+
+  function renderDriverCards() {
+    const assignedDriverIds = new Set(Array.from(Store.getOrders().values()).map((o) => o.assignedTo).filter(Boolean));
+    const driverIds = new Set([...assignedDriverIds, ...Store.getDrivers().keys()]);
+
+    cashEmptyEl.hidden = driverIds.size > 0;
+    if (driverIds.size === 0) {
+      driverCards.forEach((refs) => refs.card.remove());
+      driverCards.clear();
+      return;
+    }
+
+    driverCards.forEach((refs, driverId) => {
+      if (!driverIds.has(driverId)) {
+        refs.card.remove();
+        driverCards.delete(driverId);
+      }
+    });
+
+    driverIds.forEach((driverId) => {
+      const refs = ensureDriverCard(driverId);
+      if (!refs.card.isConnected) driverCardsEl.appendChild(refs.card);
+      updateDriverCard(driverId);
+    });
+  }
+
+  function rebuildDriverCardsForNewFormConfig() {
+    driverCards.forEach((refs, driverId) => buildStatCells(driverId, refs));
+    renderDriverCards();
+  }
+
+  // ---------- Suscripciones ----------
+
   const intervalId = setInterval(() => {
     drivers.forEach((d) => d.infoWindow.setContent(driverPopup(d)));
   }, 5000);
@@ -331,6 +540,16 @@ async function mount(root) {
   const onRoutesSnapshot = (e) => (e.detail || []).forEach(upsertRoute);
   const onDriverRoute = (e) => upsertRoute(e.detail);
   const onRouteRemove = (e) => removeRoute(e.detail.driverId);
+  const onCashStartsSnapshot = () => renderDriverCards();
+  const onDriverCashStart = (e) => {
+    if (driverCards.has(e.detail.driverId)) updateDriverCard(e.detail.driverId);
+  };
+  const onExpensesSnapshot = () => renderDriverCards();
+  const onFormConfigSnapshot = (e) => {
+    formConfig = e.detail || { paymentMethods: [] };
+    if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
+    rebuildDriverCardsForNewFormConfig();
+  };
 
   Store.on('drivers:snapshot', onDriversSnapshot);
   Store.on('driver:update', onDriverUpdate);
@@ -341,6 +560,10 @@ async function mount(root) {
   Store.on('routes:snapshot', onRoutesSnapshot);
   Store.on('driver:route', onDriverRoute);
   Store.on('route:remove', onRouteRemove);
+  Store.on('cash-starts:snapshot', onCashStartsSnapshot);
+  Store.on('driver:cash-start', onDriverCashStart);
+  Store.on('expenses:snapshot', onExpensesSnapshot);
+  Store.on('form-config:snapshot', onFormConfigSnapshot);
 
   const unsubscribe = () => {
     Store.off('drivers:snapshot', onDriversSnapshot);
@@ -352,6 +575,10 @@ async function mount(root) {
     Store.off('routes:snapshot', onRoutesSnapshot);
     Store.off('driver:route', onDriverRoute);
     Store.off('route:remove', onRouteRemove);
+    Store.off('cash-starts:snapshot', onCashStartsSnapshot);
+    Store.off('driver:cash-start', onDriverCashStart);
+    Store.off('expenses:snapshot', onExpensesSnapshot);
+    Store.off('form-config:snapshot', onFormConfigSnapshot);
   };
 
   active = { intervalId, drivers, orders, routeLines, unsubscribe, teardownDriverLabel };
@@ -363,6 +590,7 @@ async function mount(root) {
   Array.from(Store.getOrders().values()).forEach(upsertOrder);
   Array.from(Store.getRoutes().values()).forEach(upsertRoute);
   if (!hasFitBounds) fitBoundsToEverything();
+  renderDriverCards();
 }
 
 function unmount() {
@@ -372,8 +600,8 @@ function unmount() {
 
 Router.register('/dashboard.html', {
   title: 'Deliverys y mapa — Deliverys en vivo',
-  subtitle: 'Cargá pedidos, asignalos, y mirá cómo se mueven tus deliverys en el mapa.',
-  wide: false,
+  subtitle: 'Mirá dónde están tus deliverys y rendí cuentas con cada uno, todo en la misma pantalla.',
+  wide: true,
   template,
   mount,
   unmount,
