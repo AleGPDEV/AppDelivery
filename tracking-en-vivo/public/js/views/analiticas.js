@@ -6,20 +6,34 @@ const template = `
   <section class="panel">
     <h2>Día comercial</h2>
     <p id="day-status" class="driver-count">Cargando...</p>
+
+    <div class="field">
+      <label for="cash-start">Efectivo inicial (con el que arrancó la caja)</label>
+      <input type="text" id="cash-start" placeholder="$ 2.000,00">
+    </div>
+
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <button id="start-day-btn" type="button" class="primary" style="width:auto;">Iniciar día</button>
       <button id="end-day-btn" type="button" class="danger" style="width:auto;">Finalizar día</button>
     </div>
-    <div id="cash-fields" style="display:none; margin-top:14px;">
-      <div class="field">
-        <label for="cash-start">Efectivo inicial (con el que arrancó la caja)</label>
-        <input type="text" id="cash-start" placeholder="$ 2.000,00">
+
+    <div id="cash-breakdown" style="display:none; margin-top:16px;">
+      <h3 style="margin-bottom:10px;">Desglose de caja (en vivo)</h3>
+      <div class="driver-card-stats">
+        <div class="driver-stat"><label>Efectivo inicial</label><span class="value" id="cb-cash-start">$0.00</span></div>
+        <div class="driver-stat"><label>Ventas totales</label><span class="value" id="cb-ventas-totales">$0.00</span></div>
+        <div class="driver-stat"><label>Ventas en efectivo</label><span class="value" id="cb-ventas-efectivo">$0.00</span></div>
+        <div class="driver-stat"><label>Gastos a proveedores (efvo.)</label><span class="value" id="cb-gastos">$0.00</span></div>
+        <div class="driver-stat"><label>Efectivo esperado ahora</label><strong id="cb-esperado">$0.00</strong></div>
       </div>
-      <div class="field">
-        <label for="cash-end">Efectivo final (contado al cerrar)</label>
-        <input type="text" id="cash-end" placeholder="$ 15.000,00">
-      </div>
+      <p class="hint">Se va actualizando solo con cada venta y cada gasto — si al cerrar el día no cuadra, comparalo contra este desglose para ver en qué momento se desvió.</p>
     </div>
+
+    <div id="cash-end-field" class="field" style="display:none; margin-top:14px;">
+      <label for="cash-end">Efectivo final (contado al cerrar)</label>
+      <input type="text" id="cash-end" placeholder="$ 15.000,00">
+    </div>
+
     <p id="day-status-msg" class="status"></p>
   </section>
 
@@ -74,9 +88,15 @@ function mount(root) {
   const dayStatusMsgEl = root.querySelector('#day-status-msg');
   const startDayBtn = root.querySelector('#start-day-btn');
   const endDayBtn = root.querySelector('#end-day-btn');
-  const cashFieldsEl = root.querySelector('#cash-fields');
+  const cashEndFieldEl = root.querySelector('#cash-end-field');
   const cashStartEl = root.querySelector('#cash-start');
   const cashEndEl = root.querySelector('#cash-end');
+  const cashBreakdownEl = root.querySelector('#cash-breakdown');
+  const cbCashStartEl = root.querySelector('#cb-cash-start');
+  const cbVentasTotalesEl = root.querySelector('#cb-ventas-totales');
+  const cbVentasEfectivoEl = root.querySelector('#cb-ventas-efectivo');
+  const cbGastosEl = root.querySelector('#cb-gastos');
+  const cbEsperadoEl = root.querySelector('#cb-esperado');
   const dailyChartEl = root.querySelector('#daily-chart');
   const dailyTbodyEl = root.querySelector('#daily-tbody');
   const monthlyTbodyEl = root.querySelector('#monthly-tbody');
@@ -88,6 +108,7 @@ function mount(root) {
 
   let currentDay = Store.getBusinessDay();
   let allDays = []; // último historial recibido, solo para el conteo del botón "Borrar TODO"
+  let formConfig = Store.getFormConfig();
 
   function fmtMoney(n) {
     return `$${(n || 0).toFixed(2)}`;
@@ -102,6 +123,43 @@ function mount(root) {
     return new Date(iso).toLocaleString('es-UY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
+  function isCashPayment(paymentMethod) {
+    if (!paymentMethod) return false;
+    const method = (formConfig.paymentMethods || []).find((m) => m.name === paymentMethod);
+    return !!(method && method.isCash);
+  }
+
+  // Mismo espíritu que el desglose por delivery en dashboard.js (Cambio
+  // inicial + Ventas + Gastos = Total), pero a nivel de todo el día — para que
+  // el admin vea en vivo hacia dónde va la caja, no recién al tocar "Finalizar
+  // día". `cashStartOverride` se usa al validar el cierre (compara contra lo
+  // que se está por mandar, no contra lo último persistido).
+  function computeCashBreakdown(cashStartOverride) {
+    const cashStart = cashStartOverride != null ? cashStartOverride : ((currentDay && currentDay.cash_start) || 0);
+    let ventasTotales = 0;
+    let ventasEfectivo = 0;
+    Store.getOrders().forEach((o) => {
+      if (o.archivedAt || o.status !== 'entregado' || typeof o.amount !== 'number') return;
+      ventasTotales += o.amount;
+      if (isCashPayment(o.paymentMethod)) ventasEfectivo += o.amount;
+    });
+    let gastosEfectivo = 0;
+    Store.getExpenses().forEach((e) => {
+      if (e.paymentMethodIsCash) gastosEfectivo += e.amount;
+    });
+    return { cashStart, ventasTotales, ventasEfectivo, gastosEfectivo, cashExpected: cashStart + ventasEfectivo - gastosEfectivo };
+  }
+
+  function renderCashBreakdown() {
+    if (!currentDay) return;
+    const b = computeCashBreakdown();
+    cbCashStartEl.textContent = fmtMoney(b.cashStart);
+    cbVentasTotalesEl.textContent = fmtMoney(b.ventasTotales);
+    cbVentasEfectivoEl.textContent = fmtMoney(b.ventasEfectivo);
+    cbGastosEl.textContent = b.gastosEfectivo > 0 ? `-${fmtMoney(b.gastosEfectivo)}` : fmtMoney(0);
+    cbEsperadoEl.textContent = fmtMoney(b.cashExpected);
+  }
+
   async function api(path, options) {
     const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
     const data = await res.json().catch(() => ({}));
@@ -114,15 +172,18 @@ function mount(root) {
       dayStatusEl.textContent = `Día abierto desde ${fmtDateTime(currentDay.started_at)} (${fmtDate(currentDay.date)}).`;
       startDayBtn.disabled = true;
       endDayBtn.disabled = false;
-      cashFieldsEl.style.display = '';
+      cashEndFieldEl.style.display = '';
+      cashBreakdownEl.style.display = '';
       if (document.activeElement !== cashStartEl && currentDay.cash_start != null) {
         cashStartEl.value = currentDay.cash_start.toFixed(2);
       }
+      renderCashBreakdown();
     } else {
       dayStatusEl.textContent = 'Ningún día abierto ahora mismo.';
       startDayBtn.disabled = false;
       endDayBtn.disabled = true;
-      cashFieldsEl.style.display = 'none';
+      cashEndFieldEl.style.display = 'none';
+      cashBreakdownEl.style.display = 'none';
     }
   }
 
@@ -136,6 +197,7 @@ function mount(root) {
       try {
         const { day } = await api('/api/business-day/cash-start', { method: 'POST', body: JSON.stringify({ cashStart }) });
         currentDay = day;
+        renderCashBreakdown();
       } catch (e) {
         dayStatusMsgEl.textContent = e.message;
         dayStatusMsgEl.className = 'status error';
@@ -335,10 +397,17 @@ function mount(root) {
   }
 
   startDayBtn.addEventListener('click', async () => {
+    const cashStart = Geo.parseAmount(cashStartEl.value);
+    if (cashStart == null) {
+      dayStatusMsgEl.textContent = 'Ingresá el efectivo inicial (con el que arranca la caja) para poder iniciar el día.';
+      dayStatusMsgEl.className = 'status error';
+      cashStartEl.focus();
+      return;
+    }
     startDayBtn.disabled = true;
     dayStatusMsgEl.textContent = '';
     try {
-      const { day } = await api('/api/business-day/start', { method: 'POST' });
+      const { day } = await api('/api/business-day/start', { method: 'POST', body: JSON.stringify({ cashStart }) });
       currentDay = day;
       renderDayStatus();
       dayStatusMsgEl.textContent = 'Día iniciado.';
@@ -365,6 +434,12 @@ function mount(root) {
     let confirmMsg = `¿Finalizar el día? Se van a archivar ${active.length} pedido${active.length === 1 ? '' : 's'} (dejan de verse en "Pedidos") y quedan fijos en el historial.`;
     if (notDelivered.length > 0) {
       confirmMsg = `Hay ${notDelivered.length} pedido${notDelivered.length === 1 ? '' : 's'} sin entregar todavía. ${confirmMsg} ¿Archivar de todas formas?`;
+    }
+
+    const { cashExpected } = computeCashBreakdown(cashStart);
+    const diff = cashEnd - cashExpected;
+    if (Math.abs(diff) >= 0.01) {
+      confirmMsg += `\n\n⚠️ El efectivo contado (${fmtMoney(cashEnd)}) no coincide con el esperado según el desglose (${fmtMoney(cashExpected)}) — diferencia de ${diff >= 0 ? '+' : ''}${fmtMoney(diff)}. ¿Cerrar igual?`;
     }
     if (!confirm(confirmMsg)) return;
 
@@ -414,10 +489,27 @@ function mount(root) {
     currentDay = e.detail.day;
     renderDayStatus();
   };
+  const onOrdersChange = () => renderCashBreakdown();
+  const onExpensesSnapshot = () => renderCashBreakdown();
+  const onFormConfigSnapshot = (e) => {
+    formConfig = e.detail || { paymentMethods: [] };
+    if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
+    renderCashBreakdown();
+  };
   Store.on('business-day:status', onDayStatus);
+  Store.on('orders:snapshot', onOrdersChange);
+  Store.on('order:update', onOrdersChange);
+  Store.on('order:remove', onOrdersChange);
+  Store.on('expenses:snapshot', onExpensesSnapshot);
+  Store.on('form-config:snapshot', onFormConfigSnapshot);
 
   unsubscribe = () => {
     Store.off('business-day:status', onDayStatus);
+    Store.off('orders:snapshot', onOrdersChange);
+    Store.off('order:update', onOrdersChange);
+    Store.off('order:remove', onOrdersChange);
+    Store.off('expenses:snapshot', onExpensesSnapshot);
+    Store.off('form-config:snapshot', onFormConfigSnapshot);
     clearTimeout(cashStartSaveTimer);
   };
 

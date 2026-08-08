@@ -499,11 +499,19 @@ function isCashPayment(paymentMethod, paymentMethods = formConfig.paymentMethods
   return !!(method && method.isCash);
 }
 
+// El efectivo inicial es obligatorio para poder abrir el día -- a pedido
+// explícito del usuario ("si no lo coloco no puedo utilizar nada"), ya que
+// todo el resto de la app (Pedidos, Proveedores, etc.) queda habilitado en
+// cuanto hay un día abierto. Antes se podía iniciar sin monto y cargarlo
+// después (o nunca) desde /api/business-day/cash-start -- ese endpoint sigue
+// existiendo tal cual, para poder editarlo una vez que el día ya arrancó.
 app.post('/api/business-day/start', requireAuth, async (req, res) => {
   if (openBusinessDay) return res.json({ day: openBusinessDay });
+  const cashStart = Number(req.body?.cashStart);
+  if (!Number.isFinite(cashStart)) return res.status(400).json({ error: 'Falta el efectivo inicial.' });
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase.from('business_days')
-    .insert({ date: today, started_at: new Date().toISOString() })
+    .insert({ date: today, started_at: new Date().toISOString(), cash_start: cashStart })
     .select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   openBusinessDay = data;
