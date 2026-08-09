@@ -7,6 +7,7 @@ const cookie = require('cookie');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const ExcelJS = require('exceljs');
 const { Server } = require('socket.io');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -704,6 +705,182 @@ app.post('/api/categories/:id/image', requireAuth, productImageUpload.single('im
   persistCategory(req.params.id, c);
   io.emit('catalog:snapshot', catalogSnapshot());
   res.json({ ok: true, imageUrl: c.imageUrl });
+});
+
+// Carga rápida del catálogo vía Excel -- pensada para arrancar el sistema
+// desde cero sin tener que cargar producto por producto. Descarga (abajo) y
+// carga (más abajo) comparten formato: una fila por producto, columnas
+// Categoría/Producto/Descripción/Precio/Mostrar, sin ningún id que el admin
+// tenga que manejar -- categorías y productos se identifican por nombre.
+app.get('/api/catalog/template.xlsx', requireAuth, async (req, res) => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Catálogo');
+  sheet.columns = [
+    { header: 'Categoría', key: 'category', width: 22 },
+    { header: 'Producto', key: 'product', width: 30 },
+    { header: 'Descripción', key: 'description', width: 42 },
+    { header: 'Precio', key: 'price', width: 12 },
+    { header: 'Mostrar (Sí/No)', key: 'visible', width: 16 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  const cats = categoryList();
+  const prods = productList();
+  if (cats.length > 0) {
+    // Ya hay catálogo cargado: se exporta tal cual (una fila por producto, o
+    // una fila "solo categoría" si todavía no tiene ninguno) para que este
+    // mismo archivo sirva también para editar/agregar en lote, no solo para
+    // arrancar de cero.
+    cats.forEach((c) => {
+      const items = prods.filter((p) => p.categoryId === c.id);
+      if (items.length === 0) {
+        sheet.addRow({ category: c.name, product: '', description: '', price: '', visible: '' });
+      } else {
+        items.forEach((p) => {
+          sheet.addRow({
+            category: c.name,
+            product: p.name,
+            description: p.description || '',
+            price: p.price || 0,
+            visible: p.visible === false ? 'No' : 'Sí',
+          });
+        });
+      }
+    });
+  } else {
+    sheet.addRow({ category: 'Rolls', product: 'Roll California', description: 'Palta, kanikama, queso crema', price: 450, visible: 'Sí' });
+    sheet.addRow({ category: 'Rolls', product: 'Roll Philadelphia', description: 'Salmón, queso crema', price: 480, visible: 'Sí' });
+    sheet.addRow({ category: 'Bebidas', product: 'Coca-Cola 500ml', description: '', price: 150, visible: 'Sí' });
+  }
+
+  // Desplegable Sí/No en la columna "Mostrar" -- para las filas ya cargadas y
+  // para varios cientos de filas vacías de más, así las filas nuevas que
+  // agregue el admin también lo tienen.
+  const lastRow = sheet.rowCount + 500;
+  for (let r = 2; r <= lastRow; r++) {
+    sheet.getCell(`E${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['"Sí,No"'] };
+  }
+
+  const instructions = workbook.addWorksheet('Instrucciones');
+  instructions.columns = [{ width: 95 }];
+  [
+    'Cómo usar esta planilla',
+    '',
+    '1. Completá una fila por producto. El nombre de "Categoría" se puede repetir -- todos los productos con el mismo nombre de categoría quedan agrupados ahí.',
+    '2. Si una categoría todavía no tiene productos, dejá una fila con solo el nombre de la categoría (el resto vacío).',
+    '3. "Mostrar" controla si ese producto aparece en el pedido online -- dejalo en "Sí" salvo que quieras cargarlo pero ocultarlo por ahora.',
+    '4. Guardá el archivo y subilo desde Catálogo -> "Cargar Excel". No hace falta completar ningún ID -- las categorías y productos se identifican por nombre.',
+    '5. Volver a subir el mismo archivo (editado) actualiza los productos que ya existan (por nombre + categoría) y crea los que sean nuevos -- no borra nada. Para borrar un producto o categoría, hacelo desde la pantalla de Catálogo.',
+    '6. Las fotos no se pueden cargar desde acá -- se suben una por una tocando el ✏️ de cada producto/categoría en Catálogo, después de importar.',
+  ].forEach((line) => instructions.addRow([line]));
+  instructions.getRow(1).font = { bold: true, size: 13 };
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="catalogo.xlsx"');
+  await workbook.xlsx.write(res);
+  res.end();
+});
+
+const catalogImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+// Mismo parseo que Geo.parseAmount del lado del cliente ("$ 1.630,00" ->
+// 1630), pero server.js no tiene acceso a geo.js (es un script de browser) --
+// duplicado acá a propósito, self-contained, para esta única función.
+function parsePriceCell(cell) {
+  if (typeof cell.value === 'number') return cell.value;
+  const raw = (cell.text || '').toString().trim();
+  if (!raw) return 0;
+  const cleaned = raw.replace(/[^\d,.-]/g, '');
+  const normalized = cleaned.includes(',') ? cleaned.replace(/\./g, '').replace(',', '.') : cleaned;
+  const n = parseFloat(normalized);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+// Nunca borra nada: identifica categorías y productos por nombre (sin
+// importar mayúsculas/espacios) y hace upsert -- si ya existe uno con ese
+// nombre (en esa categoría, para productos) lo actualiza, si no, lo crea.
+// Para borrar algo hay que hacerlo a mano desde Catálogo -- evita que un
+// error de tipeo en la planilla se lleve puesto un producto real sin avisar.
+app.post('/api/catalog/import', requireAuth, catalogImportUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Falta el archivo.' });
+
+  const workbook = new ExcelJS.Workbook();
+  try {
+    await workbook.xlsx.load(req.file.buffer);
+  } catch (e) {
+    return res.status(400).json({ error: 'No se pudo leer el archivo -- ¿es un .xlsx válido?' });
+  }
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return res.status(400).json({ error: 'El archivo no tiene ninguna hoja con datos.' });
+
+  const categoryIdByName = new Map();
+  categories.forEach((c, id) => categoryIdByName.set(c.name.trim().toLowerCase(), id));
+  const productIdByKey = new Map();
+  products.forEach((p, id) => productIdByKey.set(`${p.categoryId}::${p.name.trim().toLowerCase()}`, id));
+
+  const result = { categoriesCreated: 0, productsCreated: 0, productsUpdated: 0, errors: [] };
+
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return; // encabezado
+
+    const categoryName = (row.getCell(1).text || '').toString().trim();
+    const productName = (row.getCell(2).text || '').toString().trim();
+    if (!categoryName) {
+      if (productName) result.errors.push(`Fila ${rowNumber}: falta la categoría, se ignoró.`);
+      return;
+    }
+
+    const catKey = categoryName.toLowerCase();
+    let categoryId = categoryIdByName.get(catKey);
+    if (!categoryId) {
+      categoryId = crypto.randomUUID();
+      const entry = { name: categoryName.slice(0, 60), sortOrder: categories.size, visible: true };
+      categories.set(categoryId, entry);
+      persistCategory(categoryId, entry);
+      categoryIdByName.set(catKey, categoryId);
+      result.categoriesCreated++;
+    }
+
+    if (!productName) return; // fila "solo categoría" -- ya quedó creada/asegurada arriba
+
+    const description = (row.getCell(3).text || '').toString().trim();
+    const price = parsePriceCell(row.getCell(4));
+    const visibleRaw = (row.getCell(5).text || '').toString().trim().toLowerCase();
+    const visible = visibleRaw !== 'no';
+
+    const key = `${categoryId}::${productName.toLowerCase()}`;
+    const existingId = productIdByKey.get(key);
+    if (existingId) {
+      const p = products.get(existingId);
+      p.description = description.slice(0, 300);
+      p.price = price;
+      p.visible = visible;
+      persistProduct(existingId, p);
+      result.productsUpdated++;
+    } else {
+      const id = crypto.randomUUID();
+      const entry = {
+        categoryId,
+        name: productName.slice(0, 80),
+        description: description.slice(0, 300),
+        price,
+        imageUrl: null,
+        sortOrder: products.size,
+        visible,
+      };
+      products.set(id, entry);
+      persistProduct(id, entry);
+      productIdByKey.set(key, id);
+      result.productsCreated++;
+    }
+  });
+
+  io.emit('catalog:snapshot', catalogSnapshot());
+  res.json({ ok: true, ...result });
 });
 
 app.post('/api/admin/reset-today', requireAuth, async (req, res) => {

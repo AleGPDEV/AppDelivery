@@ -13,9 +13,15 @@ const template = `
   <section class="panel" id="categories-view">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
       <h2>Categorías</h2>
-      <button id="reorder-categories-btn" type="button" class="small">↕ Ordenar categorías</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <a id="download-template-btn" href="/api/catalog/template.xlsx" class="primary" download style="width:auto; padding:6px 14px; border-radius:var(--radius-sm); font-size:0.85rem; font-weight:600;">⬇ Descargar Excel</a>
+        <button id="import-catalog-btn" type="button" class="small">⬆ Cargar Excel</button>
+        <input type="file" id="import-catalog-input" accept=".xlsx" style="display:none;">
+        <button id="reorder-categories-btn" type="button" class="small">↕ Ordenar categorías</button>
+      </div>
     </div>
-    <p class="hint">Así se ve el pedido online para el cliente — tocá una categoría para ver (y administrar) sus productos.</p>
+    <p class="hint">Así se ve el pedido online para el cliente — tocá una categoría para ver (y administrar) sus productos. "Descargar Excel" te da una planilla con el catálogo actual (o un ejemplo si todavía está vacío) para editar en lote y volver a subir.</p>
+    <p id="import-status" class="status"></p>
     <div id="category-grid" class="category-grid" style="margin-top:16px;"></div>
   </section>
 
@@ -133,6 +139,9 @@ function mount(root) {
   const categoriesViewEl = root.querySelector('#categories-view');
   const categoryGridEl = root.querySelector('#category-grid');
   const reorderCategoriesBtn = root.querySelector('#reorder-categories-btn');
+  const importCatalogBtn = root.querySelector('#import-catalog-btn');
+  const importCatalogInputEl = root.querySelector('#import-catalog-input');
+  const importStatusEl = root.querySelector('#import-status');
 
   const productsViewEl = root.querySelector('#products-view');
   const productsViewTitleEl = root.querySelector('#products-view-title');
@@ -373,6 +382,41 @@ function mount(root) {
   }
 
   backToCategoriesBtn.addEventListener('click', showCategoriesView);
+
+  // --- Carga masiva vía Excel: "Descargar Excel" es un <a href> directo al
+  // endpoint (GET /api/catalog/template.xlsx, la sesión de admin ya viaja
+  // por la cookie); "Cargar Excel" abre el selector de archivo nativo y
+  // sube lo elegido a POST /api/catalog/import por fetch. ---
+
+  importCatalogBtn.addEventListener('click', () => importCatalogInputEl.click());
+
+  importCatalogInputEl.addEventListener('change', async () => {
+    const file = importCatalogInputEl.files[0];
+    if (!file) return;
+    importCatalogBtn.disabled = true;
+    importStatusEl.textContent = 'Cargando...';
+    importStatusEl.className = 'status';
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch('/api/catalog/import', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo cargar el archivo.');
+      const parts = [];
+      if (data.categoriesCreated) parts.push(`${data.categoriesCreated} categoría${data.categoriesCreated === 1 ? '' : 's'} nueva${data.categoriesCreated === 1 ? '' : 's'}`);
+      if (data.productsCreated) parts.push(`${data.productsCreated} producto${data.productsCreated === 1 ? '' : 's'} nuevo${data.productsCreated === 1 ? '' : 's'}`);
+      if (data.productsUpdated) parts.push(`${data.productsUpdated} producto${data.productsUpdated === 1 ? '' : 's'} actualizado${data.productsUpdated === 1 ? '' : 's'}`);
+      let msg = parts.length > 0 ? `Listo: ${parts.join(', ')}.` : 'El archivo no tenía filas para cargar.';
+      if (data.errors && data.errors.length > 0) msg += ` ${data.errors.length} fila${data.errors.length === 1 ? '' : 's'} con problemas: ${data.errors.join(' ')}`;
+      importStatusEl.textContent = msg;
+      importStatusEl.className = data.errors && data.errors.length > 0 ? 'status error' : 'status ok';
+    } catch (e) {
+      importStatusEl.textContent = e.message;
+      importStatusEl.className = 'status error';
+    }
+    importCatalogBtn.disabled = false;
+    importCatalogInputEl.value = '';
+  });
 
   // --- Modal de categoría: crear (sin foto/borrar) o editar (con foto/borrar) ---
 
