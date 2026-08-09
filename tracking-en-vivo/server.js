@@ -191,6 +191,18 @@ let formConfig = {
   // Campos que el admin agrega él mismo (además de los de arriba):
   // [{ key, label, visible, required }], en el orden en que los creó.
   customFields: [],
+  // Identidad visual del negocio (Ajustes -> Diseño): nombre de la tienda,
+  // color principal/secundario y logo. Se aplica en toda la app (reemplaza
+  // los colores fijos que antes tenía cada rol) vía public/branding.js,
+  // cargado en todas las páginas -- incluidas las que no tienen sesión de
+  // admin (login.html, pedido-cliente.html), por eso también hay un
+  // GET /api/branding público además de viajar dentro de formConfig.
+  branding: {
+    storeName: 'Sushi Meshi Pando',
+    primaryColor: '#6C5CE7',
+    secondaryColor: '#FF6B2C',
+    logoUrl: null,
+  },
 };
 
 const STALE_MS = 5 * 60 * 1000; // a driver with no updates for 5 min is dropped as offline
@@ -485,6 +497,11 @@ function normalizeFormConfig(fields) {
   if (!cfg.name) cfg.name = { visible: true, required: false };
   if (!cfg.orderNumber) cfg.orderNumber = { visible: true, required: true };
   if (!cfg.amount) cfg.amount = { visible: true, required: true };
+  // Ídem para la identidad visual -- config guardada antes de que existiera
+  // "Diseño" en Ajustes no tiene esta clave.
+  if (!cfg.branding || typeof cfg.branding !== 'object') {
+    cfg.branding = { storeName: 'Sushi Meshi Pando', primaryColor: '#6C5CE7', secondaryColor: '#FF6B2C', logoUrl: null };
+  }
   return cfg;
 }
 
@@ -742,6 +759,34 @@ app.post('/api/categories/:id/image', requireAuth, productImageUpload.single('im
   persistCategory(req.params.id, c);
   io.emit('catalog:snapshot', catalogSnapshot());
   res.json({ ok: true, imageUrl: c.imageUrl });
+});
+
+// Público (sin requireAuth) a propósito -- login.html/pedido-cliente.html no
+// tienen sesión de admin, y el nombre/color/logo del negocio no es
+// información sensible. Las páginas con socket (admin, pedido-cliente,
+// driver) además escuchan form-config:snapshot para reflejar cambios en
+// vivo sin recargar; esto cubre la primera carga de cualquier página,
+// incluida login.html que no tiene socket propio.
+app.get('/api/branding', (req, res) => {
+  res.json({ branding: formConfig.branding || {} });
+});
+
+app.post('/api/branding/logo', requireAuth, productImageUpload.single('image'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Falta la imagen.' });
+
+  const ext = (req.file.originalname.split('.').pop() || 'png').toLowerCase().slice(0, 10);
+  const path = `branding-logo-${Date.now()}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from('product-images')
+    .upload(path, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
+  if (uploadError) return res.status(500).json({ error: uploadError.message });
+
+  const { data } = supabase.storage.from('product-images').getPublicUrl(path);
+  formConfig = { ...formConfig, branding: { ...formConfig.branding, logoUrl: data.publicUrl } };
+  supabase.from('form_config').update({ fields: formConfig, updated_at: new Date().toISOString() }).eq('id', 1).then(({ error }) => {
+    if (error) console.error('Error guardando el logo en Supabase:', error.message);
+  });
+  io.emit('form-config:snapshot', formConfig);
+  res.json({ ok: true, logoUrl: data.publicUrl });
 });
 
 // Carga rápida del catálogo vía Excel -- pensada para arrancar el sistema

@@ -233,6 +233,7 @@ socket.on('form-config:snapshot', (cfg) => {
   if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
   renderOrders();
   renderCashSummary();
+  if (window.applyBranding && formConfig.branding) window.applyBranding(formConfig.branding);
 });
 
 function paymentMethodNames() {

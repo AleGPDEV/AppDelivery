@@ -12,6 +12,11 @@
   --shadow-lg: 0 10px 30px rgba(43, 33, 27, 0.16), 0 3px 10px rgba(43, 33, 27, 0.08);
   --primary-glow: rgba(108, 92, 231, 0.25);
   --primary-soft: #E8E5FC;
+  /* Color de marca para acentos puntuales (precios, algún detalle) --
+     configurable desde Ajustes -> Diseño, ver public/branding.js. Estos
+     valores son solo el fallback antes de que ese fetch resuelva. */
+  --secondary: #FF6B2C;
+  --secondary-soft: rgba(255, 107, 44, 0.14);
 
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -40,53 +45,19 @@
   --primary-soft-dm: rgba(155, 143, 255, 0.16);
 }
 
-/* Colores por rol — cada página se identifica con `<body class="role-*">`.
-   Admin (7 pantallas de gestión + login) usa el violeta de base de :root
-   sin tocar nada; acá solo se pisan --primary/-dark/-glow/-soft para las
-   otras dos audiencias, misma mecánica que la paleta oscura de arriba. */
-body.role-cliente {
-  --primary: #FF6B2C;
-  --primary-dark: #C2410C;
-  --primary-glow: rgba(255, 107, 44, 0.25);
-  --primary-soft: #FFE6D8;
-}
+/* Antes cada rol (`<body class="role-*">`) tenía su propio --primary fijo
+   (violeta admin / naranja cliente / verde delivery) para diferenciarse a
+   simple vista. A pedido explícito ("el color principal/secundario en toda
+   la app") eso se reemplazó por un único color de marca configurable desde
+   Ajustes -> Diseño (`public/branding.js` lo aplica como estilo inline en
+   `:root`, que gana por herencia sobre cualquier regla `body.role-*` que
+   quedara acá — por eso ya no hace falta, se sacaron del todo). Las clases
+   `role-*` se mantienen en el HTML por si en algún momento hace falta
+   diferenciar algo que no sea color, pero hoy no tienen ningún efecto visual.
 
-body.role-delivery {
-  --primary: #1FAE6B;
-  --primary-dark: #157A4B;
-  --primary-glow: rgba(31, 174, 107, 0.25);
-  --primary-soft: #D9F3E6;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) body.role-cliente {
-    --primary: #FF9068;
-    --primary-dark: #FFAB86;
-    --primary-glow: rgba(255, 144, 104, 0.30);
-    --primary-soft: rgba(255, 144, 104, 0.16);
-  }
-
-  :root:not([data-theme="light"]) body.role-delivery {
-    --primary: #4ADE95;
-    --primary-dark: #6EE7AE;
-    --primary-glow: rgba(74, 222, 149, 0.30);
-    --primary-soft: rgba(74, 222, 149, 0.16);
-  }
-}
-
-:root[data-theme="dark"] body.role-cliente {
-  --primary: #FF9068;
-  --primary-dark: #FFAB86;
-  --primary-glow: rgba(255, 144, 104, 0.30);
-  --primary-soft: rgba(255, 144, 104, 0.16);
-}
-
-:root[data-theme="dark"] body.role-delivery {
-  --primary: #4ADE95;
-  --primary-dark: #6EE7AE;
-  --primary-glow: rgba(74, 222, 149, 0.30);
-  --primary-soft: rgba(74, 222, 149, 0.16);
-}
+   `--secondary`/`--secondary-soft` (arriba, en :root) SÍ siguen siendo un
+   único valor global, no por rol -- el "color secundario" es un acento de
+   marca, no una forma de distinguir pantallas. */
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -139,6 +110,22 @@ header {
   padding: 24px 56px 8px 20px;
   max-width: 720px;
   margin: 0 auto;
+}
+
+/* Logo del negocio (Ajustes -> Diseño) -- inyectado por branding.js, oculto
+   por defecto hasta que haya uno subido. Va antes del <h1> en el markup, se
+   ve como un bloque chico arriba del título. */
+.brand-logo {
+  display: block;
+  max-height: 40px;
+  max-width: 160px;
+  object-fit: contain;
+  margin-bottom: 6px;
+}
+
+.brand-logo-hero {
+  max-height: 56px;
+  margin-bottom: 10px;
 }
 
 h1 {
@@ -796,8 +783,8 @@ button.small {
 .product-card .product-price {
   align-self: flex-start;
   font-weight: 700;
-  color: var(--primary);
-  background: var(--primary-soft);
+  color: var(--secondary);
+  background: var(--secondary-soft);
   padding: 4px 10px;
   border-radius: var(--radius-pill);
 }

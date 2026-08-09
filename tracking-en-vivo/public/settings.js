@@ -40,6 +40,7 @@ settingsOverlay.innerHTML = `
     <div class="settings-tabs" role="tablist" aria-label="Secciones de configuración">
       <button type="button" class="active" data-settings-tab="pedidos">Pedidos</button>
       <button type="button" data-settings-tab="delivery">Delivery</button>
+      <button type="button" data-settings-tab="diseno">Diseño</button>
       <button type="button" data-settings-tab="cuenta">Cuenta</button>
     </div>
 
@@ -77,6 +78,35 @@ settingsOverlay.innerHTML = `
       </section>
     </div>
 
+    <div data-settings-panel="diseno" hidden>
+      <section>
+        <h2>Diseño</h2>
+        <p class="hint">El color y el logo se aplican en toda la app; el nombre de la tienda se usa en el pedido online.</p>
+        <div class="field">
+          <label for="brand-store-name">Nombre de la tienda</label>
+          <input type="text" id="brand-store-name" placeholder="Ej: Sushi Meshi Pando">
+        </div>
+        <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;">
+          <div class="field" style="margin-bottom:0;">
+            <label for="brand-primary-color">Color principal</label>
+            <input type="color" id="brand-primary-color" style="width:60px; height:40px; padding:2px; cursor:pointer;">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="brand-secondary-color">Color secundario</label>
+            <input type="color" id="brand-secondary-color" style="width:60px; height:40px; padding:2px; cursor:pointer;">
+          </div>
+        </div>
+        <div class="field">
+          <label for="brand-logo-input">Logo</label>
+          <img id="brand-logo-preview" src="" alt="" style="display:none; max-height:60px; max-width:200px; object-fit:contain; margin-bottom:8px; border-radius:8px;">
+          <input type="file" id="brand-logo-input" accept="image/*">
+          <p id="brand-logo-status" class="hint"></p>
+        </div>
+        <button id="brand-reset-btn" type="button" class="danger small">Restablecer colores por defecto</button>
+        <p id="brand-status" class="status"></p>
+      </section>
+    </div>
+
     <div data-settings-panel="cuenta" hidden>
       <section>
         <h2>Cuenta</h2>
@@ -103,6 +133,14 @@ const newPaymentMethodNameEl = document.getElementById('new-payment-method-name'
 const newPaymentMethodCashEl = document.getElementById('new-payment-method-cash');
 const addPaymentMethodBtn = document.getElementById('add-payment-method-btn');
 const fieldConfigListEl = document.getElementById('field-config-list');
+const brandStoreNameEl = document.getElementById('brand-store-name');
+const brandPrimaryColorEl = document.getElementById('brand-primary-color');
+const brandSecondaryColorEl = document.getElementById('brand-secondary-color');
+const brandLogoInputEl = document.getElementById('brand-logo-input');
+const brandLogoPreviewEl = document.getElementById('brand-logo-preview');
+const brandLogoStatusEl = document.getElementById('brand-logo-status');
+const brandResetBtn = document.getElementById('brand-reset-btn');
+const brandStatusEl = document.getElementById('brand-status');
 const pwCurrentEl = document.getElementById('pw-current');
 const pwNewEl = document.getElementById('pw-new');
 const pwBtnEl = document.getElementById('pw-btn');
@@ -339,16 +377,97 @@ function renderFieldConfig() {
   fieldConfigListEl.appendChild(addRow);
 }
 
+// --- Diseño: nombre de la tienda, color principal/secundario, logo. Vive
+// adentro de formConfig.branding (mismo mecanismo de persistencia/broadcast
+// que el resto de Ajustes, ver server.js) para no inventar una tabla nueva.
+// window.applyBranding viene de public/branding.js (cargado en todas las
+// páginas antes que este script) -- acá se reusa para la vista previa en
+// vivo mientras se elige un color, sin esperar el viaje de ida y vuelta
+// por el socket.
+
+const DEFAULT_BRANDING = { storeName: 'Sushi Meshi Pando', primaryColor: '#6C5CE7', secondaryColor: '#FF6B2C', logoUrl: null };
+
+function branding() {
+  return formConfig.branding || DEFAULT_BRANDING;
+}
+
+function renderBranding() {
+  const b = branding();
+  brandStoreNameEl.value = b.storeName || '';
+  brandPrimaryColorEl.value = b.primaryColor || DEFAULT_BRANDING.primaryColor;
+  brandSecondaryColorEl.value = b.secondaryColor || DEFAULT_BRANDING.secondaryColor;
+  if (b.logoUrl) {
+    brandLogoPreviewEl.src = b.logoUrl;
+    brandLogoPreviewEl.style.display = '';
+  } else {
+    brandLogoPreviewEl.style.display = 'none';
+  }
+}
+
+function updateBranding(fields) {
+  formConfig = { ...formConfig, branding: { ...branding(), ...fields } };
+  socket.emit('form-config:update', formConfig);
+}
+
+brandStoreNameEl.addEventListener('change', () => {
+  updateBranding({ storeName: brandStoreNameEl.value.trim() || DEFAULT_BRANDING.storeName });
+});
+
+// 'input' (mientras se arrastra el selector) solo actualiza la vista previa
+// en pantalla, sin tocar el servidor -- recién al soltar ('change') se
+// guarda de verdad, así no se satura el socket con un evento por cada
+// pixel de movimiento del selector nativo.
+brandPrimaryColorEl.addEventListener('input', () => {
+  if (window.applyBranding) window.applyBranding({ primaryColor: brandPrimaryColorEl.value });
+});
+brandPrimaryColorEl.addEventListener('change', () => {
+  updateBranding({ primaryColor: brandPrimaryColorEl.value });
+});
+brandSecondaryColorEl.addEventListener('input', () => {
+  if (window.applyBranding) window.applyBranding({ secondaryColor: brandSecondaryColorEl.value });
+});
+brandSecondaryColorEl.addEventListener('change', () => {
+  updateBranding({ secondaryColor: brandSecondaryColorEl.value });
+});
+
+brandResetBtn.addEventListener('click', () => {
+  updateBranding({ primaryColor: DEFAULT_BRANDING.primaryColor, secondaryColor: DEFAULT_BRANDING.secondaryColor });
+  brandStatusEl.textContent = 'Colores restablecidos.';
+  brandStatusEl.className = 'status ok';
+});
+
+brandLogoInputEl.addEventListener('change', async () => {
+  const file = brandLogoInputEl.files[0];
+  brandLogoInputEl.value = '';
+  if (!file) return;
+  brandLogoStatusEl.textContent = 'Subiendo...';
+  const formData = new FormData();
+  formData.append('image', file);
+  try {
+    const res = await fetch('/api/branding/logo', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo subir el logo.');
+    brandLogoPreviewEl.src = data.logoUrl;
+    brandLogoPreviewEl.style.display = '';
+    brandLogoStatusEl.textContent = 'Logo actualizado.';
+  } catch (e) {
+    brandLogoStatusEl.textContent = e.message;
+  }
+});
+
 Store.on('form-config:snapshot', (e) => {
   formConfig = e.detail || {};
   renderBuiltinFieldConfig();
   renderPaymentMethods();
   renderFieldConfig();
+  renderBranding();
+  if (window.applyBranding) window.applyBranding(branding());
 });
 
 renderBuiltinFieldConfig();
 renderPaymentMethods();
 renderFieldConfig();
+renderBranding();
 
 pwBtnEl.addEventListener('click', async () => {
   const currentPassword = pwCurrentEl.value;

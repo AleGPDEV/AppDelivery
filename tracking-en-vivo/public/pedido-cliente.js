@@ -500,4 +500,5 @@ socket.on('catalog:snapshot', ({ categories: catList, products: prodList }) => {
 socket.on('form-config:snapshot', (cfg) => {
   formConfig = cfg || {};
   renderCheckoutFields();
+  if (window.applyBranding && formConfig.branding) window.applyBranding(formConfig.branding);
 });
