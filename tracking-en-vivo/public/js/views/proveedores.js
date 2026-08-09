@@ -30,18 +30,27 @@ const template = `
   </section>
 
   <section class="panel">
-    <h2>Proveedores</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <h2>Proveedores</h2>
+      <button id="new-supplier-open-btn" type="button" class="primary small">+ Agregar proveedor</button>
+    </div>
     <p class="hint">La lista de a quién le pagás -- elegilos del desplegable al cargar un gasto en vez de tipear el nombre cada vez, así después se puede ver cuánto se gastó por proveedor.</p>
     <div id="supplier-list" style="margin-top:10px;"></div>
-    <div class="field" style="display:flex; gap:8px; align-items:flex-end; margin-top:10px; max-width:420px;">
-      <div style="flex:1;">
-        <label for="new-supplier-name">Nuevo proveedor</label>
-        <input type="text" id="new-supplier-name" placeholder="Ej: Pescadería López">
-      </div>
-      <button id="add-supplier-btn" type="button" class="primary small">Agregar</button>
-    </div>
   </section>
 </main>
+
+<div id="new-supplier-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button id="new-supplier-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2>Nuevo proveedor</h2>
+    <div class="field">
+      <label for="new-supplier-name">Nombre</label>
+      <input type="text" id="new-supplier-name" placeholder="Ej: Pescadería López">
+    </div>
+    <button id="add-supplier-btn" type="button" class="primary">Agregar proveedor</button>
+    <p id="add-supplier-status" class="status"></p>
+  </div>
+</div>
 
 <div id="new-expense-overlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
@@ -98,8 +107,12 @@ function mount(root) {
   const expenseCashTotalEl = root.querySelector('#expense-cash-total');
   const expenseTbodyEl = root.querySelector('#expense-tbody');
   const supplierListEl = root.querySelector('#supplier-list');
+  const newSupplierOpenBtn = root.querySelector('#new-supplier-open-btn');
+  const newSupplierOverlay = root.querySelector('#new-supplier-overlay');
+  const newSupplierCloseBtn = root.querySelector('#new-supplier-close-btn');
   const newSupplierNameEl = root.querySelector('#new-supplier-name');
   const addSupplierBtn = root.querySelector('#add-supplier-btn');
+  const addSupplierStatusEl = root.querySelector('#add-supplier-status');
 
   const socket = Store.socket;
   const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
@@ -260,11 +273,28 @@ function mount(root) {
     if (expenseSupplierEl.value === NEW_SUPPLIER_VALUE) newSupplierInlineNameEl.focus();
   });
 
+  newSupplierOpenBtn.addEventListener('click', () => {
+    newSupplierNameEl.value = '';
+    addSupplierStatusEl.textContent = '';
+    addSupplierStatusEl.className = 'status';
+    newSupplierOverlay.style.display = 'flex';
+    newSupplierNameEl.focus();
+  });
+  newSupplierCloseBtn.addEventListener('click', () => { newSupplierOverlay.style.display = 'none'; });
+  newSupplierOverlay.addEventListener('click', (e) => { if (e.target === newSupplierOverlay) newSupplierOverlay.style.display = 'none'; });
+
   addSupplierBtn.addEventListener('click', () => {
     const name = newSupplierNameEl.value.trim();
-    if (!name) return;
+    if (!name) {
+      addSupplierStatusEl.textContent = 'Escribí un nombre.';
+      addSupplierStatusEl.className = 'status error';
+      return;
+    }
     socket.emit('supplier:add', { id: crypto.randomUUID(), name });
     newSupplierNameEl.value = '';
+    addSupplierStatusEl.textContent = 'Proveedor agregado.';
+    addSupplierStatusEl.className = 'status ok';
+    newSupplierNameEl.focus();
   });
 
   addExpenseBtn.addEventListener('click', () => {
