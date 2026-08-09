@@ -1,48 +1,90 @@
 import { Store } from '/js/store.js';
 import { Router } from '/js/router.js';
 
+// Misma grilla de categorías -> productos que ve el cliente en
+// pedido-cliente.html (reusa .category-grid/.category-card/.catalog-grid/
+// .product-card de style.css tal cual), para que el admin vea el catálogo
+// como lo ve un cliente en vez de una tabla de gestión aparte. Encima de esa
+// misma estructura se agregan los controles de admin: un ✏️ chico por
+// tarjeta (categoría o producto) que abre su modal de edición, y una
+// "tarjeta" de borde punteado al final de cada grilla para crear una nueva.
 const template = `
 <main class="wide">
-  <section class="panel">
-    <h2>Categorías</h2>
-    <p class="hint">El orden acá es el orden en que aparecen en el pedido online.</p>
-    <div id="category-list"></div>
-    <div class="field" style="display:flex; gap:8px; align-items:flex-end; margin-top:10px;">
-      <div style="flex:1;">
-        <label for="new-category-name">Nueva categoría</label>
-        <input type="text" id="new-category-name" placeholder="Ej: Rolls">
-      </div>
-      <button id="add-category-btn" type="button" class="primary small">Agregar categoría</button>
+  <section class="panel" id="categories-view">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <h2>Categorías</h2>
+      <button id="reorder-categories-btn" type="button" class="small">↕ Ordenar categorías</button>
     </div>
+    <p class="hint">Así se ve el pedido online para el cliente — tocá una categoría para ver (y administrar) sus productos.</p>
+    <div id="category-grid" class="category-grid" style="margin-top:16px;"></div>
   </section>
 
-  <section class="panel">
-    <h2>Agregar producto</h2>
-    <div class="field">
-      <label for="new-product-category">Categoría</label>
-      <select id="new-product-category"></select>
+  <section class="panel" id="products-view" hidden>
+    <div class="products-view-header">
+      <button id="back-to-categories-btn" type="button" class="icon-btn" aria-label="Volver a categorías">←</button>
+      <h2 id="products-view-title" class="catalog-view-title"></h2>
+    </div>
+    <div id="products-grid" class="catalog-grid"></div>
+  </section>
+</main>
+
+<div id="category-edit-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button id="category-edit-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2 id="category-edit-title">Editar categoría</h2>
+    <div class="field" id="category-edit-photo-field">
+      <label for="category-edit-image">Foto</label>
+      <img id="category-edit-preview" src="" alt="" style="display:none; max-width:100%; border-radius:8px; margin-bottom:8px;">
+      <input type="file" id="category-edit-image" accept="image/*">
+      <p id="category-edit-image-status" class="hint"></p>
     </div>
     <div class="field">
-      <label for="new-product-name">Nombre</label>
-      <input type="text" id="new-product-name" placeholder="Ej: Roll California">
+      <label for="category-edit-name">Nombre</label>
+      <input type="text" id="category-edit-name" placeholder="Ej: Rolls">
+    </div>
+    <div class="field" id="category-edit-visible-field">
+      <label style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="category-edit-visible" style="width:auto;">
+        Mostrar en el pedido online
+      </label>
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button id="category-edit-save-btn" type="button" class="primary">Guardar</button>
+      <button id="category-edit-delete-btn" type="button" class="danger">Eliminar categoría</button>
+    </div>
+    <p id="category-edit-status" class="status"></p>
+  </div>
+</div>
+
+<div id="category-order-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button id="category-order-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2>Ordenar categorías</h2>
+    <p class="hint">Arrastrá del ⠿ para reordenar — se guarda solo, no hace falta ningún botón aparte.</p>
+    <ul id="category-order-list" class="reorder-list"></ul>
+  </div>
+</div>
+
+<div id="product-add-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button id="product-add-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2>Nuevo producto</h2>
+    <div class="field">
+      <label for="add-product-name">Nombre</label>
+      <input type="text" id="add-product-name" placeholder="Ej: Roll California">
     </div>
     <div class="field">
-      <label for="new-product-description">Descripción</label>
-      <input type="text" id="new-product-description" placeholder="Ej: 8 piezas, palta y kanikama">
+      <label for="add-product-description">Descripción</label>
+      <input type="text" id="add-product-description" placeholder="Ej: 8 piezas, palta y kanikama">
     </div>
     <div class="field">
-      <label for="new-product-price">Precio</label>
-      <input type="text" id="new-product-price" placeholder="$ 450,00">
+      <label for="add-product-price">Precio</label>
+      <input type="text" id="add-product-price" placeholder="$ 450,00">
     </div>
     <button id="add-product-btn" type="button" class="primary">Agregar producto</button>
     <p id="add-product-status" class="status"></p>
-  </section>
-
-  <section class="panel">
-    <h2>Productos</h2>
-    <div id="product-groups"></div>
-  </section>
-</main>
+  </div>
+</div>
 
 <div id="product-edit-overlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
@@ -76,7 +118,10 @@ const template = `
         Mostrar en el pedido online
       </label>
     </div>
-    <button id="edit-product-save-btn" type="button" class="primary">Guardar cambios</button>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button id="edit-product-save-btn" type="button" class="primary">Guardar cambios</button>
+      <button id="edit-product-delete-btn" type="button" class="danger">Eliminar producto</button>
+    </div>
     <p id="edit-product-status" class="status"></p>
   </div>
 </div>
@@ -85,18 +130,40 @@ const template = `
 let unsubscribe = null;
 
 function mount(root) {
-  const categoryListEl = root.querySelector('#category-list');
-  const newCategoryNameEl = root.querySelector('#new-category-name');
-  const addCategoryBtn = root.querySelector('#add-category-btn');
+  const categoriesViewEl = root.querySelector('#categories-view');
+  const categoryGridEl = root.querySelector('#category-grid');
+  const reorderCategoriesBtn = root.querySelector('#reorder-categories-btn');
 
-  const newProductCategoryEl = root.querySelector('#new-product-category');
-  const newProductNameEl = root.querySelector('#new-product-name');
-  const newProductDescriptionEl = root.querySelector('#new-product-description');
-  const newProductPriceEl = root.querySelector('#new-product-price');
+  const productsViewEl = root.querySelector('#products-view');
+  const productsViewTitleEl = root.querySelector('#products-view-title');
+  const productsGridEl = root.querySelector('#products-grid');
+  const backToCategoriesBtn = root.querySelector('#back-to-categories-btn');
+
+  const categoryEditOverlay = root.querySelector('#category-edit-overlay');
+  const categoryEditCloseBtn = root.querySelector('#category-edit-close-btn');
+  const categoryEditTitleEl = root.querySelector('#category-edit-title');
+  const categoryEditPhotoFieldEl = root.querySelector('#category-edit-photo-field');
+  const categoryEditPreviewEl = root.querySelector('#category-edit-preview');
+  const categoryEditImageEl = root.querySelector('#category-edit-image');
+  const categoryEditImageStatusEl = root.querySelector('#category-edit-image-status');
+  const categoryEditNameEl = root.querySelector('#category-edit-name');
+  const categoryEditVisibleFieldEl = root.querySelector('#category-edit-visible-field');
+  const categoryEditVisibleEl = root.querySelector('#category-edit-visible');
+  const categoryEditSaveBtn = root.querySelector('#category-edit-save-btn');
+  const categoryEditDeleteBtn = root.querySelector('#category-edit-delete-btn');
+  const categoryEditStatusEl = root.querySelector('#category-edit-status');
+
+  const categoryOrderOverlay = root.querySelector('#category-order-overlay');
+  const categoryOrderCloseBtn = root.querySelector('#category-order-close-btn');
+  const categoryOrderListEl = root.querySelector('#category-order-list');
+
+  const productAddOverlay = root.querySelector('#product-add-overlay');
+  const productAddCloseBtn = root.querySelector('#product-add-close-btn');
+  const addProductNameEl = root.querySelector('#add-product-name');
+  const addProductDescriptionEl = root.querySelector('#add-product-description');
+  const addProductPriceEl = root.querySelector('#add-product-price');
   const addProductBtn = root.querySelector('#add-product-btn');
   const addProductStatusEl = root.querySelector('#add-product-status');
-
-  const productGroupsEl = root.querySelector('#product-groups');
 
   const productEditOverlay = root.querySelector('#product-edit-overlay');
   const productEditCloseBtn = root.querySelector('#product-edit-close-btn');
@@ -109,9 +176,14 @@ function mount(root) {
   const editProductPriceEl = root.querySelector('#edit-product-price');
   const editProductVisibleEl = root.querySelector('#edit-product-visible');
   const editProductSaveBtn = root.querySelector('#edit-product-save-btn');
+  const editProductDeleteBtn = root.querySelector('#edit-product-delete-btn');
   const editProductStatusEl = root.querySelector('#edit-product-status');
 
   const socket = Store.socket;
+
+  let view = 'categories'; // 'categories' | 'products' -- mismo toggle que pedido-cliente.js
+  let activeCategoryId = null;
+  let editingCategoryId = null; // null = el modal de categoría está en modo "crear"
   let editingProductId = null;
 
   function categories() { return Store.getCategories(); }
@@ -125,102 +197,10 @@ function mount(root) {
     return Array.from(categories().entries()).sort((a, b) => a[1].sortOrder - b[1].sortOrder);
   }
 
-  function renderCategories() {
-    categoryListEl.innerHTML = '';
-    sortedCategories().forEach(([id, c]) => {
-      const row = document.createElement('div');
-      row.style.display = 'flex';
-      row.style.alignItems = 'center';
-      row.style.gap = '10px';
-      row.style.padding = '6px 0';
-
-      const photoLabel = document.createElement('label');
-      photoLabel.title = 'Foto de la categoría (se usa como fondo de la tarjeta en el pedido online)';
-      photoLabel.style.flexShrink = '0';
-      photoLabel.style.cursor = 'pointer';
-      photoLabel.style.width = '40px';
-      photoLabel.style.height = '40px';
-      photoLabel.style.borderRadius = 'var(--radius-sm)';
-      photoLabel.style.overflow = 'hidden';
-      photoLabel.style.display = 'flex';
-      photoLabel.style.alignItems = 'center';
-      photoLabel.style.justifyContent = 'center';
-      photoLabel.style.background = 'var(--bg)';
-      photoLabel.style.border = '1px solid var(--border)';
-      if (c.imageUrl) {
-        const thumb = document.createElement('img');
-        thumb.src = c.imageUrl;
-        thumb.alt = '';
-        thumb.style.width = '100%';
-        thumb.style.height = '100%';
-        thumb.style.objectFit = 'cover';
-        photoLabel.appendChild(thumb);
-      } else {
-        photoLabel.textContent = '🖼️';
-        photoLabel.style.fontSize = '1.1rem';
-      }
-      const photoInput = document.createElement('input');
-      photoInput.type = 'file';
-      photoInput.accept = 'image/*';
-      photoInput.style.display = 'none';
-      photoInput.addEventListener('change', async () => {
-        const file = photoInput.files[0];
-        if (!file) return;
-        const formData = new FormData();
-        formData.append('image', file);
-        try {
-          const res = await fetch(`/api/categories/${id}/image`, { method: 'POST', body: formData });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'No se pudo subir la foto.');
-        } catch (e) {
-          alert(e.message);
-        }
-      });
-      photoLabel.appendChild(photoInput);
-
-      const nameInput = document.createElement('input');
-      nameInput.type = 'text';
-      nameInput.value = c.name;
-      nameInput.style.flex = '1';
-      nameInput.addEventListener('change', () => {
-        socket.emit('category:edit', { id, fields: { name: nameInput.value.trim() } });
-      });
-
-      const orderInput = document.createElement('input');
-      orderInput.type = 'number';
-      orderInput.value = c.sortOrder;
-      orderInput.style.width = '70px';
-      orderInput.addEventListener('change', () => {
-        socket.emit('category:edit', { id, fields: { sortOrder: parseInt(orderInput.value, 10) || 0 } });
-      });
-
-      const visibleLabel = document.createElement('label');
-      visibleLabel.style.display = 'flex';
-      visibleLabel.style.alignItems = 'center';
-      visibleLabel.style.gap = '4px';
-      visibleLabel.style.fontSize = '0.85rem';
-      visibleLabel.style.whiteSpace = 'nowrap';
-      const visibleCheck = document.createElement('input');
-      visibleCheck.type = 'checkbox';
-      visibleCheck.style.width = 'auto';
-      visibleCheck.checked = c.visible !== false;
-      visibleCheck.addEventListener('change', () => {
-        socket.emit('category:edit', { id, fields: { visible: visibleCheck.checked } });
-      });
-      visibleLabel.append(visibleCheck, 'Mostrar');
-
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'danger small';
-      delBtn.textContent = '🗑';
-      const hasProducts = categoryHasProducts(id);
-      delBtn.disabled = hasProducts;
-      delBtn.title = hasProducts ? 'Primero mové o borrá los productos de esta categoría.' : 'Eliminar categoría';
-      delBtn.addEventListener('click', () => socket.emit('category:remove', { id }));
-
-      row.append(photoLabel, nameInput, orderInput, visibleLabel, delBtn);
-      categoryListEl.appendChild(row);
-    });
+  function productsInCategory(categoryId) {
+    return Array.from(products().entries())
+      .filter(([, p]) => p.categoryId === categoryId)
+      .sort((a, b) => a[1].sortOrder - b[1].sortOrder);
   }
 
   function renderCategorySelect(selectEl, selectedId) {
@@ -235,80 +215,315 @@ function mount(root) {
     if (previous) selectEl.value = previous;
   }
 
-  function renderProductGroups() {
-    productGroupsEl.innerHTML = '';
-    sortedCategories().forEach(([categoryId, c]) => {
-      const items = Array.from(products().entries())
-        .filter(([, p]) => p.categoryId === categoryId)
-        .sort((a, b) => a[1].sortOrder - b[1].sortOrder);
-      if (items.length === 0) return;
+  // --- Grilla de categorías (idéntica a pedido-cliente.js + un ✏️ y una
+  // tarjeta "+ Nueva categoría" al final) ---
 
-      const heading = document.createElement('h3');
-      heading.textContent = c.name;
-      productGroupsEl.appendChild(heading);
+  function renderCategoryGrid() {
+    categoryGridEl.innerHTML = '';
+    sortedCategories().forEach(([id, c]) => {
+      const card = document.createElement('div');
+      card.className = 'category-card';
+      card.setAttribute('role', 'button');
+      card.tabIndex = 0;
 
-      const wrap = document.createElement('div');
-      wrap.className = 'table-scroll';
-      const table = document.createElement('table');
-      table.className = 'order-table';
-      const thead = document.createElement('thead');
-      thead.innerHTML = '<tr><th>Foto</th><th>Nombre</th><th>Descripción</th><th>Precio</th><th>Visible</th><th></th></tr>';
-      table.appendChild(thead);
-      const tbody = document.createElement('tbody');
+      if (c.imageUrl) {
+        const img = document.createElement('img');
+        img.src = c.imageUrl;
+        img.alt = '';
+        card.appendChild(img);
+      }
+      const overlay = document.createElement('div');
+      overlay.className = 'category-card-overlay';
+      card.appendChild(overlay);
+      const label = document.createElement('span');
+      label.className = 'category-card-name';
+      label.textContent = c.name;
+      card.appendChild(label);
+      if (c.visible === false) {
+        const badge = document.createElement('span');
+        badge.className = 'hidden-badge';
+        badge.textContent = 'Oculta';
+        card.appendChild(badge);
+      }
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'category-card-edit-btn';
+      editBtn.textContent = '✏️';
+      editBtn.setAttribute('aria-label', `Editar ${c.name}`);
+      editBtn.addEventListener('click', (e) => { e.stopPropagation(); openCategoryEditModal(id, c); });
+      card.appendChild(editBtn);
 
-      items.forEach(([id, p]) => {
-        const tr = document.createElement('tr');
-
-        const tdImg = document.createElement('td');
-        if (p.imageUrl) {
-          const img = document.createElement('img');
-          img.src = p.imageUrl;
-          img.alt = p.name;
-          img.style.width = '40px';
-          img.style.height = '40px';
-          img.style.objectFit = 'cover';
-          img.style.borderRadius = '6px';
-          tdImg.appendChild(img);
-        } else {
-          tdImg.textContent = '—';
-        }
-
-        const tdName = document.createElement('td');
-        tdName.textContent = p.name;
-
-        const tdDesc = document.createElement('td');
-        tdDesc.textContent = p.description || '';
-
-        const tdPrice = document.createElement('td');
-        tdPrice.textContent = `$${Number(p.price || 0).toFixed(2)}`;
-
-        const tdVisible = document.createElement('td');
-        tdVisible.textContent = p.visible !== false ? 'Sí' : 'No';
-
-        const tdActions = document.createElement('td');
-        tdActions.style.display = 'flex';
-        tdActions.style.gap = '4px';
-        const editBtn = document.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'small';
-        editBtn.textContent = '✏️';
-        editBtn.addEventListener('click', () => openProductEditModal(id, p));
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'danger small';
-        delBtn.textContent = '🗑';
-        delBtn.addEventListener('click', () => socket.emit('product:remove', { id }));
-        tdActions.append(editBtn, delBtn);
-
-        tr.append(tdImg, tdName, tdDesc, tdPrice, tdVisible, tdActions);
-        tbody.appendChild(tr);
+      const open = () => showProductsView(id);
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
       });
 
-      table.appendChild(tbody);
-      wrap.appendChild(table);
-      productGroupsEl.appendChild(wrap);
+      categoryGridEl.appendChild(card);
+    });
+
+    const addTile = document.createElement('div');
+    addTile.className = 'category-card add-tile';
+    addTile.setAttribute('role', 'button');
+    addTile.tabIndex = 0;
+    addTile.innerHTML = '<span class="add-tile-icon">+</span><span>Nueva categoría</span>';
+    addTile.addEventListener('click', openCategoryCreateModal);
+    addTile.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCategoryCreateModal(); }
+    });
+    categoryGridEl.appendChild(addTile);
+  }
+
+  // --- Grilla de productos de una categoría (idéntica a pedido-cliente.js,
+  // sin el contador +/- que ahí es del carrito, con un ✏️ y una tarjeta
+  // "+ Agregar producto" al final) ---
+
+  function buildAdminProductCard(id, p) {
+    const card = document.createElement('div');
+    card.className = 'product-card';
+
+    if (p.imageUrl) {
+      const img = document.createElement('img');
+      img.src = p.imageUrl;
+      img.alt = p.name;
+      card.appendChild(img);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'no-image';
+      placeholder.textContent = '🍣';
+      card.appendChild(placeholder);
+    }
+
+    if (p.visible === false) {
+      const badge = document.createElement('span');
+      badge.className = 'hidden-badge';
+      badge.textContent = 'Oculto';
+      card.appendChild(badge);
+    }
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'product-card-edit-btn';
+    editBtn.textContent = '✏️';
+    editBtn.setAttribute('aria-label', `Editar ${p.name}`);
+    editBtn.addEventListener('click', () => openProductEditModal(id, p));
+    card.appendChild(editBtn);
+
+    const name = document.createElement('div');
+    name.className = 'product-name';
+    name.textContent = p.name;
+    card.appendChild(name);
+
+    if (p.description) {
+      const desc = document.createElement('div');
+      desc.className = 'product-description';
+      desc.textContent = p.description;
+      card.appendChild(desc);
+    }
+
+    const price = document.createElement('div');
+    price.className = 'product-price';
+    price.textContent = `$${Number(p.price || 0).toFixed(2)}`;
+    card.appendChild(price);
+
+    return card;
+  }
+
+  function renderProductGrid() {
+    const c = categories().get(activeCategoryId);
+    productsViewTitleEl.textContent = c ? c.name : '';
+    productsGridEl.innerHTML = '';
+    productsInCategory(activeCategoryId).forEach(([id, p]) => productsGridEl.appendChild(buildAdminProductCard(id, p)));
+
+    const addTile = document.createElement('div');
+    addTile.className = 'product-card add-tile';
+    addTile.setAttribute('role', 'button');
+    addTile.tabIndex = 0;
+    addTile.innerHTML = '<span class="add-tile-icon">+</span><span>Agregar producto</span>';
+    addTile.addEventListener('click', openProductAddModal);
+    addTile.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openProductAddModal(); }
+    });
+    productsGridEl.appendChild(addTile);
+  }
+
+  function render() {
+    if (view === 'products') {
+      categoriesViewEl.hidden = true;
+      productsViewEl.hidden = false;
+      renderProductGrid();
+    } else {
+      productsViewEl.hidden = true;
+      categoriesViewEl.hidden = false;
+      renderCategoryGrid();
+    }
+  }
+
+  function showCategoriesView() {
+    view = 'categories';
+    activeCategoryId = null;
+    render();
+  }
+
+  function showProductsView(categoryId) {
+    view = 'products';
+    activeCategoryId = categoryId;
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  backToCategoriesBtn.addEventListener('click', showCategoriesView);
+
+  // --- Modal de categoría: crear (sin foto/borrar) o editar (con foto/borrar) ---
+
+  function openCategoryCreateModal() {
+    editingCategoryId = null;
+    categoryEditTitleEl.textContent = 'Nueva categoría';
+    categoryEditPhotoFieldEl.hidden = true;
+    categoryEditVisibleFieldEl.hidden = true;
+    categoryEditDeleteBtn.hidden = true;
+    categoryEditNameEl.value = '';
+    categoryEditStatusEl.textContent = '';
+    categoryEditStatusEl.className = 'status';
+    categoryEditOverlay.style.display = 'flex';
+    categoryEditNameEl.focus();
+  }
+
+  function openCategoryEditModal(id, c) {
+    editingCategoryId = id;
+    categoryEditTitleEl.textContent = 'Editar categoría';
+    categoryEditPhotoFieldEl.hidden = false;
+    categoryEditVisibleFieldEl.hidden = false;
+    categoryEditDeleteBtn.hidden = false;
+    const hasProducts = categoryHasProducts(id);
+    categoryEditDeleteBtn.disabled = hasProducts;
+    categoryEditDeleteBtn.title = hasProducts ? 'Primero mové o borrá los productos de esta categoría.' : '';
+    categoryEditNameEl.value = c.name || '';
+    categoryEditVisibleEl.checked = c.visible !== false;
+    categoryEditImageEl.value = '';
+    categoryEditImageStatusEl.textContent = '';
+    if (c.imageUrl) {
+      categoryEditPreviewEl.src = c.imageUrl;
+      categoryEditPreviewEl.style.display = '';
+    } else {
+      categoryEditPreviewEl.style.display = 'none';
+    }
+    categoryEditStatusEl.textContent = '';
+    categoryEditStatusEl.className = 'status';
+    categoryEditOverlay.style.display = 'flex';
+  }
+
+  categoryEditCloseBtn.addEventListener('click', () => { categoryEditOverlay.style.display = 'none'; });
+  categoryEditOverlay.addEventListener('click', (e) => { if (e.target === categoryEditOverlay) categoryEditOverlay.style.display = 'none'; });
+
+  categoryEditImageEl.addEventListener('change', async () => {
+    const file = categoryEditImageEl.files[0];
+    if (!file || !editingCategoryId) return;
+    categoryEditImageStatusEl.textContent = 'Subiendo...';
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+      const res = await fetch(`/api/categories/${editingCategoryId}/image`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo subir la foto.');
+      categoryEditPreviewEl.src = data.imageUrl;
+      categoryEditPreviewEl.style.display = '';
+      categoryEditImageStatusEl.textContent = 'Foto actualizada.';
+    } catch (e) {
+      categoryEditImageStatusEl.textContent = e.message;
+    }
+  });
+
+  categoryEditSaveBtn.addEventListener('click', () => {
+    const name = categoryEditNameEl.value.trim();
+    if (!name) {
+      categoryEditStatusEl.textContent = 'Ingresá un nombre.';
+      categoryEditStatusEl.className = 'status error';
+      return;
+    }
+    if (editingCategoryId) {
+      socket.emit('category:edit', { id: editingCategoryId, fields: { name, visible: categoryEditVisibleEl.checked } });
+    } else {
+      socket.emit('category:add', { name });
+    }
+    categoryEditOverlay.style.display = 'none';
+  });
+
+  categoryEditDeleteBtn.addEventListener('click', () => {
+    if (!editingCategoryId || categoryEditDeleteBtn.disabled) return;
+    socket.emit('category:remove', { id: editingCategoryId });
+    categoryEditOverlay.style.display = 'none';
+  });
+
+  // --- Popup de reordenar categorías: lista arrastrable con puntero (mouse
+  // + touch unificados), sin ningún número que tipear. Cada drop persiste
+  // solo (category:edit con el sortOrder nuevo), no hay botón "Guardar". ---
+
+  function openCategoryOrderModal() {
+    categoryOrderListEl.innerHTML = '';
+    sortedCategories().forEach(([id, c]) => {
+      const li = document.createElement('li');
+      li.className = 'reorder-item';
+      li.dataset.id = id;
+      const handle = document.createElement('span');
+      handle.className = 'reorder-handle';
+      handle.textContent = '⠿';
+      const name = document.createElement('span');
+      name.className = 'reorder-item-name';
+      name.textContent = c.name + (c.visible === false ? ' (oculta)' : '');
+      li.append(handle, name);
+      categoryOrderListEl.appendChild(li);
+    });
+    categoryOrderOverlay.style.display = 'flex';
+  }
+
+  reorderCategoriesBtn.addEventListener('click', openCategoryOrderModal);
+  categoryOrderCloseBtn.addEventListener('click', () => { categoryOrderOverlay.style.display = 'none'; });
+  categoryOrderOverlay.addEventListener('click', (e) => { if (e.target === categoryOrderOverlay) categoryOrderOverlay.style.display = 'none'; });
+
+  function persistCategoryOrder(orderedIds) {
+    orderedIds.forEach((id, index) => {
+      const c = categories().get(id);
+      if (c && c.sortOrder !== index) {
+        socket.emit('category:edit', { id, fields: { sortOrder: index } });
+      }
     });
   }
+
+  initReorderDrag(categoryOrderListEl, persistCategoryOrder);
+
+  // --- Modal "Nuevo producto" (dentro de la categoría que se está viendo) ---
+
+  function openProductAddModal() {
+    addProductNameEl.value = '';
+    addProductDescriptionEl.value = '';
+    addProductPriceEl.value = '';
+    addProductStatusEl.textContent = '';
+    addProductStatusEl.className = 'status';
+    productAddOverlay.style.display = 'flex';
+    addProductNameEl.focus();
+  }
+
+  productAddCloseBtn.addEventListener('click', () => { productAddOverlay.style.display = 'none'; });
+  productAddOverlay.addEventListener('click', (e) => { if (e.target === productAddOverlay) productAddOverlay.style.display = 'none'; });
+
+  addProductBtn.addEventListener('click', () => {
+    const name = addProductNameEl.value.trim();
+    if (!activeCategoryId || !name) {
+      addProductStatusEl.textContent = 'Ingresá un nombre.';
+      addProductStatusEl.className = 'status error';
+      return;
+    }
+    socket.emit('product:add', {
+      categoryId: activeCategoryId,
+      name,
+      description: addProductDescriptionEl.value.trim(),
+      price: Geo.parseAmount(addProductPriceEl.value) || 0,
+    });
+    productAddOverlay.style.display = 'none';
+  });
+
+  // --- Modal "Editar producto" (sin cambios de fondo respecto de antes) ---
 
   function openProductEditModal(id, p) {
     editingProductId = id;
@@ -366,45 +581,95 @@ function mount(root) {
     productEditOverlay.style.display = 'none';
   });
 
-  addCategoryBtn.addEventListener('click', () => {
-    const name = newCategoryNameEl.value.trim();
-    if (!name) return;
-    socket.emit('category:add', { name });
-    newCategoryNameEl.value = '';
-  });
-
-  addProductBtn.addEventListener('click', () => {
-    const categoryId = newProductCategoryEl.value;
-    const name = newProductNameEl.value.trim();
-    if (!categoryId || !name) {
-      addProductStatusEl.textContent = 'Elegí una categoría y un nombre.';
-      addProductStatusEl.className = 'status error';
-      return;
-    }
-    socket.emit('product:add', {
-      categoryId,
-      name,
-      description: newProductDescriptionEl.value.trim(),
-      price: Geo.parseAmount(newProductPriceEl.value) || 0,
-    });
-    newProductNameEl.value = '';
-    newProductDescriptionEl.value = '';
-    newProductPriceEl.value = '';
-    addProductStatusEl.textContent = 'Producto agregado. Podés subirle una foto tocando ✏️ en la lista de abajo.';
-    addProductStatusEl.className = 'status ok';
+  editProductDeleteBtn.addEventListener('click', () => {
+    if (!editingProductId) return;
+    socket.emit('product:remove', { id: editingProductId });
+    productEditOverlay.style.display = 'none';
   });
 
   const onCatalogSnapshot = () => {
-    renderCategories();
-    renderCategorySelect(newProductCategoryEl);
-    renderProductGroups();
+    // Si estabas viendo una categoría que se vació/borró desde otra pestaña
+    // mientras tenías esta abierta, no te deja mirando una grilla rota.
+    if (view === 'products' && !categories().has(activeCategoryId)) {
+      showCategoriesView();
+    } else {
+      render();
+    }
   };
   Store.on('catalog:snapshot', onCatalogSnapshot);
   unsubscribe = () => Store.off('catalog:snapshot', onCatalogSnapshot);
 
-  renderCategories();
-  renderCategorySelect(newProductCategoryEl);
-  renderProductGroups();
+  render();
+}
+
+// Lista arrastrable genérica (mouse + touch, vía Pointer Events) — se
+// engancha una sola vez sobre el <ul> contenedor (delegación por
+// e.target.closest), aunque su contenido se rebuild cada vez que se abre el
+// popup. Al soltar, `onDrop` recibe el array de ids en el orden final.
+function initReorderDrag(listEl, onDrop) {
+  let dragEl = null;
+  let startClientY = 0;
+
+  function siblings() {
+    return Array.from(listEl.children);
+  }
+
+  function onPointerMove(e) {
+    if (!dragEl) return;
+    e.preventDefault();
+    const deltaY = e.clientY - startClientY;
+    dragEl.style.transform = `translateY(${deltaY}px)`;
+
+    const dragRect = dragEl.getBoundingClientRect();
+    const dragCenter = dragRect.top + dragRect.height / 2;
+
+    for (const sib of siblings()) {
+      if (sib === dragEl) continue;
+      const rect = sib.getBoundingClientRect();
+      const sibCenter = rect.top + rect.height / 2;
+      const dragIsBeforeSib = !!(dragEl.compareDocumentPosition(sib) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (dragIsBeforeSib && dragCenter > sibCenter) {
+        listEl.insertBefore(dragEl, sib.nextSibling);
+        startClientY = e.clientY;
+        dragEl.style.transform = 'translateY(0px)';
+        break;
+      } else if (!dragIsBeforeSib && dragCenter < sibCenter) {
+        listEl.insertBefore(dragEl, sib);
+        startClientY = e.clientY;
+        dragEl.style.transform = 'translateY(0px)';
+        break;
+      }
+    }
+  }
+
+  function onPointerUp(e) {
+    if (!dragEl) return;
+    dragEl.classList.remove('dragging');
+    dragEl.style.transform = '';
+    try { dragEl.releasePointerCapture(e.pointerId); } catch { /* algunos navegadores viejos no soportan pointer capture */ }
+    const finishedList = siblings().map((el) => el.dataset.id);
+    dragEl = null;
+    listEl.removeEventListener('pointermove', onPointerMove);
+    listEl.removeEventListener('pointerup', onPointerUp);
+    listEl.removeEventListener('pointercancel', onPointerUp);
+    onDrop(finishedList);
+  }
+
+  listEl.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.reorder-handle');
+    if (!handle) return;
+    const item = handle.closest('.reorder-item');
+    if (!item) return;
+    e.preventDefault();
+    dragEl = item;
+    startClientY = e.clientY;
+    dragEl.classList.add('dragging');
+    dragEl.style.transform = 'translateY(0px)';
+    try { dragEl.setPointerCapture(e.pointerId); } catch { /* idem */ }
+    listEl.addEventListener('pointermove', onPointerMove);
+    listEl.addEventListener('pointerup', onPointerUp);
+    listEl.addEventListener('pointercancel', onPointerUp);
+  });
 }
 
 function unmount() {
@@ -414,7 +679,7 @@ function unmount() {
 
 Router.register('/catalogo.html', {
   title: 'Catálogo — Deliverys en vivo',
-  subtitle: 'Armá las categorías y productos que van a ver los clientes en el pedido online.',
+  subtitle: 'Así lo ve el cliente -- tocá una categoría para administrar sus productos.',
   wide: true,
   template,
   mount,
