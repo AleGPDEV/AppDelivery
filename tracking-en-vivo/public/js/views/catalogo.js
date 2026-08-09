@@ -35,19 +35,21 @@ const template = `
 </main>
 
 <div id="category-edit-overlay" class="modal-overlay" style="display:none;">
-  <div class="modal-box">
+  <div class="modal-box modal-box-media">
     <button id="category-edit-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
     <h2 id="category-edit-title">Editar categoría</h2>
-    <div class="field" id="category-edit-photo-field">
-      <label for="category-edit-image">Foto</label>
-      <img id="category-edit-preview" src="" alt="" style="display:none; max-width:100%; border-radius:8px; margin-bottom:8px;">
-      <input type="file" id="category-edit-image" accept="image/*">
-      <p id="category-edit-image-status" class="hint"></p>
+    <div class="modal-image-hero modal-image-hero-8-5" id="category-edit-hero">
+      <img id="category-edit-preview" src="" alt="" style="display:none;">
+      <div class="modal-image-hero-overlay"></div>
+      <label class="modal-image-hero-photo-btn" id="category-edit-photo-btn" title="Cambiar foto">
+        📷
+        <input type="file" id="category-edit-image" accept="image/*" style="display:none;">
+      </label>
+      <div class="modal-image-hero-fields">
+        <input type="text" id="category-edit-name" class="modal-image-hero-input modal-image-hero-input-title" placeholder="Nombre de la categoría">
+      </div>
     </div>
-    <div class="field">
-      <label for="category-edit-name">Nombre</label>
-      <input type="text" id="category-edit-name" placeholder="Ej: Rolls">
-    </div>
+    <p id="category-edit-image-status" class="hint"></p>
     <div class="field" id="category-edit-visible-field">
       <label style="display:flex; align-items:center; gap:6px;">
         <input type="checkbox" id="category-edit-visible" style="width:auto;">
@@ -59,6 +61,26 @@ const template = `
       <button id="category-edit-delete-btn" type="button" class="danger">Eliminar categoría</button>
     </div>
     <p id="category-edit-status" class="status"></p>
+  </div>
+</div>
+
+<div id="image-crop-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box modal-box-media">
+    <button id="image-crop-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2>Ajustar foto</h2>
+    <div id="image-crop-viewport" class="image-crop-viewport">
+      <img id="image-crop-img" alt="" draggable="false">
+    </div>
+    <div class="field">
+      <label for="image-crop-zoom">Zoom</label>
+      <input type="range" id="image-crop-zoom" min="0" max="100" value="0">
+    </div>
+    <p class="hint">Arrastrá la foto para moverla, usá el control para acercar o alejar.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button id="image-crop-confirm-btn" type="button" class="primary">Usar esta foto</button>
+      <button id="image-crop-cancel-btn" type="button">Cancelar</button>
+    </div>
+    <p id="image-crop-status" class="status"></p>
   </div>
 </div>
 
@@ -93,26 +115,25 @@ const template = `
 </div>
 
 <div id="product-edit-overlay" class="modal-overlay" style="display:none;">
-  <div class="modal-box">
+  <div class="modal-box modal-box-media">
     <button id="product-edit-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
     <h2>Editar producto</h2>
-    <div class="field">
-      <label for="edit-product-image">Foto</label>
-      <img id="edit-product-preview" src="" alt="" style="display:none; max-width:100%; border-radius:8px; margin-bottom:8px;">
-      <input type="file" id="edit-product-image" accept="image/*">
-      <p id="edit-product-image-status" class="hint"></p>
+    <div class="modal-image-hero modal-image-hero-4-3" id="product-edit-hero">
+      <img id="edit-product-preview" src="" alt="" style="display:none;">
+      <div class="modal-image-hero-overlay"></div>
+      <label class="modal-image-hero-photo-btn" title="Cambiar foto">
+        📷
+        <input type="file" id="edit-product-image" accept="image/*" style="display:none;">
+      </label>
+      <div class="modal-image-hero-fields">
+        <input type="text" id="edit-product-name" class="modal-image-hero-input modal-image-hero-input-title" placeholder="Nombre del producto">
+        <input type="text" id="edit-product-description" class="modal-image-hero-input modal-image-hero-input-desc" placeholder="Descripción">
+      </div>
     </div>
+    <p id="edit-product-image-status" class="hint"></p>
     <div class="field">
       <label for="edit-product-category">Categoría</label>
       <select id="edit-product-category"></select>
-    </div>
-    <div class="field">
-      <label for="edit-product-name">Nombre</label>
-      <input type="text" id="edit-product-name">
-    </div>
-    <div class="field">
-      <label for="edit-product-description">Descripción</label>
-      <input type="text" id="edit-product-description">
     </div>
     <div class="field">
       <label for="edit-product-price">Precio</label>
@@ -151,9 +172,9 @@ function mount(root) {
   const categoryEditOverlay = root.querySelector('#category-edit-overlay');
   const categoryEditCloseBtn = root.querySelector('#category-edit-close-btn');
   const categoryEditTitleEl = root.querySelector('#category-edit-title');
-  const categoryEditPhotoFieldEl = root.querySelector('#category-edit-photo-field');
   const categoryEditPreviewEl = root.querySelector('#category-edit-preview');
   const categoryEditImageEl = root.querySelector('#category-edit-image');
+  const categoryEditPhotoBtnEl = root.querySelector('#category-edit-photo-btn');
   const categoryEditImageStatusEl = root.querySelector('#category-edit-image-status');
   const categoryEditNameEl = root.querySelector('#category-edit-name');
   const categoryEditVisibleFieldEl = root.querySelector('#category-edit-visible-field');
@@ -165,6 +186,15 @@ function mount(root) {
   const categoryOrderOverlay = root.querySelector('#category-order-overlay');
   const categoryOrderCloseBtn = root.querySelector('#category-order-close-btn');
   const categoryOrderListEl = root.querySelector('#category-order-list');
+
+  const imageCropOverlay = root.querySelector('#image-crop-overlay');
+  const imageCropCloseBtn = root.querySelector('#image-crop-close-btn');
+  const imageCropViewportEl = root.querySelector('#image-crop-viewport');
+  const imageCropImgEl = root.querySelector('#image-crop-img');
+  const imageCropZoomEl = root.querySelector('#image-crop-zoom');
+  const imageCropConfirmBtn = root.querySelector('#image-crop-confirm-btn');
+  const imageCropCancelBtn = root.querySelector('#image-crop-cancel-btn');
+  const imageCropStatusEl = root.querySelector('#image-crop-status');
 
   const productAddOverlay = root.querySelector('#product-add-overlay');
   const productAddCloseBtn = root.querySelector('#product-add-close-btn');
@@ -423,7 +453,9 @@ function mount(root) {
   function openCategoryCreateModal() {
     editingCategoryId = null;
     categoryEditTitleEl.textContent = 'Nueva categoría';
-    categoryEditPhotoFieldEl.hidden = true;
+    categoryEditPhotoBtnEl.hidden = true; // sin id todavía no se puede subir foto -- se agrega al volver a editar
+    categoryEditPreviewEl.style.display = 'none';
+    categoryEditImageStatusEl.textContent = '';
     categoryEditVisibleFieldEl.hidden = true;
     categoryEditDeleteBtn.hidden = true;
     categoryEditNameEl.value = '';
@@ -436,7 +468,7 @@ function mount(root) {
   function openCategoryEditModal(id, c) {
     editingCategoryId = id;
     categoryEditTitleEl.textContent = 'Editar categoría';
-    categoryEditPhotoFieldEl.hidden = false;
+    categoryEditPhotoBtnEl.hidden = false;
     categoryEditVisibleFieldEl.hidden = false;
     categoryEditDeleteBtn.hidden = false;
     const hasProducts = categoryHasProducts(id);
@@ -460,12 +492,11 @@ function mount(root) {
   categoryEditCloseBtn.addEventListener('click', () => { categoryEditOverlay.style.display = 'none'; });
   categoryEditOverlay.addEventListener('click', (e) => { if (e.target === categoryEditOverlay) categoryEditOverlay.style.display = 'none'; });
 
-  categoryEditImageEl.addEventListener('change', async () => {
-    const file = categoryEditImageEl.files[0];
-    if (!file || !editingCategoryId) return;
+  async function uploadCategoryImage(blob) {
+    if (!editingCategoryId) return;
     categoryEditImageStatusEl.textContent = 'Subiendo...';
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('image', blob, 'foto.jpg');
     try {
       const res = await fetch(`/api/categories/${editingCategoryId}/image`, { method: 'POST', body: formData });
       const data = await res.json();
@@ -476,6 +507,13 @@ function mount(root) {
     } catch (e) {
       categoryEditImageStatusEl.textContent = e.message;
     }
+  }
+
+  categoryEditImageEl.addEventListener('change', () => {
+    const file = categoryEditImageEl.files[0];
+    categoryEditImageEl.value = '';
+    if (!file || !editingCategoryId) return;
+    openImageCropper(file, 8 / 5, uploadCategoryImage);
   });
 
   categoryEditSaveBtn.addEventListener('click', () => {
@@ -536,6 +574,121 @@ function mount(root) {
 
   initReorderDrag(categoryOrderListEl, persistCategoryOrder);
 
+  // --- Recortador de imagen compartido (categoría y producto): al elegir un
+  // archivo se abre este popup en vez de subir directo -- se puede arrastrar
+  // para reposicionar y hay un control de zoom, para elegir qué parte de la
+  // foto queda dentro del recuadro fijo (la proporción real de la tarjeta)
+  // antes de subirla. `onConfirm(blob)` recibe el resultado ya recortado,
+  // como JPEG. Coordenadas en CSS px del viewport; `scale`/`x`/`y` describen
+  // la transformación aplicada a la imagen original (tamaño natural). ---
+
+  let cropState = null;
+  let cropDrag = null;
+
+  function updateCropTransform() {
+    if (!cropState) return;
+    imageCropImgEl.style.transform = `translate(-50%, -50%) translate(${cropState.x}px, ${cropState.y}px) scale(${cropState.scale})`;
+  }
+
+  function clampCropOffsets() {
+    if (!cropState) return;
+    const rect = imageCropViewportEl.getBoundingClientRect();
+    const dispW = cropState.naturalW * cropState.scale;
+    const dispH = cropState.naturalH * cropState.scale;
+    const maxX = Math.max(0, (dispW - rect.width) / 2);
+    const maxY = Math.max(0, (dispH - rect.height) / 2);
+    cropState.x = Math.min(maxX, Math.max(-maxX, cropState.x));
+    cropState.y = Math.min(maxY, Math.max(-maxY, cropState.y));
+  }
+
+  function closeImageCropper() {
+    imageCropOverlay.style.display = 'none';
+    if (cropState) URL.revokeObjectURL(cropState.objectUrl);
+    cropState = null;
+    imageCropImgEl.src = '';
+  }
+
+  function openImageCropper(file, aspectRatio, onConfirm) {
+    const objectUrl = URL.createObjectURL(file);
+    imageCropViewportEl.style.aspectRatio = String(aspectRatio);
+    imageCropStatusEl.textContent = '';
+    imageCropStatusEl.className = 'status';
+    imageCropConfirmBtn.disabled = true;
+    imageCropImgEl.src = objectUrl;
+    imageCropOverlay.style.display = 'flex';
+
+    imageCropImgEl.onload = () => {
+      const rect = imageCropViewportEl.getBoundingClientRect();
+      const naturalW = imageCropImgEl.naturalWidth;
+      const naturalH = imageCropImgEl.naturalHeight;
+      const minScale = Math.max(rect.width / naturalW, rect.height / naturalH);
+      cropState = { onConfirm, naturalW, naturalH, scale: minScale, minScale, maxScale: minScale * 4, x: 0, y: 0, objectUrl };
+      imageCropZoomEl.value = 0;
+      updateCropTransform();
+      imageCropConfirmBtn.disabled = false;
+    };
+  }
+
+  imageCropCloseBtn.addEventListener('click', closeImageCropper);
+  imageCropCancelBtn.addEventListener('click', closeImageCropper);
+  imageCropOverlay.addEventListener('click', (e) => { if (e.target === imageCropOverlay) closeImageCropper(); });
+
+  imageCropZoomEl.addEventListener('input', () => {
+    if (!cropState) return;
+    const t = Number(imageCropZoomEl.value) / 100;
+    cropState.scale = cropState.minScale + t * (cropState.maxScale - cropState.minScale);
+    clampCropOffsets();
+    updateCropTransform();
+  });
+
+  imageCropViewportEl.addEventListener('pointerdown', (e) => {
+    if (!cropState) return;
+    cropDrag = { startX: e.clientX, startY: e.clientY, originX: cropState.x, originY: cropState.y };
+    try { imageCropViewportEl.setPointerCapture(e.pointerId); } catch { /* algunos navegadores viejos no soportan pointer capture */ }
+  });
+  imageCropViewportEl.addEventListener('pointermove', (e) => {
+    if (!cropDrag || !cropState) return;
+    cropState.x = cropDrag.originX + (e.clientX - cropDrag.startX);
+    cropState.y = cropDrag.originY + (e.clientY - cropDrag.startY);
+    clampCropOffsets();
+    updateCropTransform();
+  });
+  function endCropDrag(e) {
+    if (!cropDrag) return;
+    try { imageCropViewportEl.releasePointerCapture(e.pointerId); } catch { /* idem */ }
+    cropDrag = null;
+  }
+  imageCropViewportEl.addEventListener('pointerup', endCropDrag);
+  imageCropViewportEl.addEventListener('pointercancel', endCropDrag);
+
+  imageCropConfirmBtn.addEventListener('click', () => {
+    if (!cropState) return;
+    const rect = imageCropViewportEl.getBoundingClientRect();
+    const { naturalW, scale, x, y, onConfirm } = cropState;
+    const dispW = naturalW * scale;
+    const dispH = cropState.naturalH * scale;
+    // Región visible del recuadro, en px de la imagen a tamaño original
+    // (dividiendo por `scale` se pasa de "px mostrados" a "px de la foto").
+    const srcX = ((dispW - rect.width) / 2 - x) / scale;
+    const srcY = ((dispH - rect.height) / 2 - y) / scale;
+    const srcW = rect.width / scale;
+    const srcH = rect.height / scale;
+
+    const outW = 960;
+    const outH = Math.round(outW * (rect.height / rect.width));
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    canvas.getContext('2d').drawImage(imageCropImgEl, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+
+    imageCropConfirmBtn.disabled = true;
+    canvas.toBlob((blob) => {
+      imageCropConfirmBtn.disabled = false;
+      if (blob) onConfirm(blob);
+      closeImageCropper();
+    }, 'image/jpeg', 0.9);
+  });
+
   // --- Modal "Nuevo producto" (dentro de la categoría que se está viendo) ---
 
   function openProductAddModal() {
@@ -592,12 +745,11 @@ function mount(root) {
   productEditCloseBtn.addEventListener('click', () => { productEditOverlay.style.display = 'none'; });
   productEditOverlay.addEventListener('click', (e) => { if (e.target === productEditOverlay) productEditOverlay.style.display = 'none'; });
 
-  editProductImageEl.addEventListener('change', async () => {
-    const file = editProductImageEl.files[0];
-    if (!file || !editingProductId) return;
+  async function uploadProductImage(blob) {
+    if (!editingProductId) return;
     editProductImageStatusEl.textContent = 'Subiendo...';
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('image', blob, 'foto.jpg');
     try {
       const res = await fetch(`/api/products/${editingProductId}/image`, { method: 'POST', body: formData });
       const data = await res.json();
@@ -608,6 +760,13 @@ function mount(root) {
     } catch (e) {
       editProductImageStatusEl.textContent = e.message;
     }
+  }
+
+  editProductImageEl.addEventListener('change', () => {
+    const file = editProductImageEl.files[0];
+    editProductImageEl.value = '';
+    if (!file || !editingProductId) return;
+    openImageCropper(file, 4 / 3, uploadProductImage);
   });
 
   editProductSaveBtn.addEventListener('click', () => {
