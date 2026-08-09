@@ -151,13 +151,18 @@ const WEB_ORDER_COOLDOWN_MS = 15000;
 const categories = new Map();
 // productId -> { categoryId, name, description, price, imageUrl, sortOrder, visible }
 const products = new Map();
-// expenseId -> { description, amount, paymentMethodId, paymentMethodName,
-// paymentMethodIsCash, businessDayId, createdAt } — pagos a proveedores
-// (reemplaza al viejo "Gastos" de caja.js, que era solo del navegador y
-// nunca llegaba al servidor). `paymentMethodName`/`paymentMethodIsCash`
-// quedan "congelados" al cargar el gasto, igual que `items.name`/`price` en
-// los pedidos, para que el cierre de día no cambie si después se edita o
-// borra ese método de pago.
+// supplierId -> { name, createdAt } — lista de a quién se le paga (antes se
+// tipeaba el nombre suelto en cada gasto; ahora se elige de esta lista para
+// no repetir el tipeo y poder analizar gastos por proveedor en el futuro).
+const suppliers = new Map();
+// expenseId -> { supplierId, supplierName, description, amount,
+// paymentMethodId, paymentMethodName, paymentMethodIsCash, businessDayId,
+// createdAt } — pagos a proveedores (reemplaza al viejo "Gastos" de
+// caja.js, que era solo del navegador y nunca llegaba al servidor).
+// `supplierName`/`paymentMethodName`/`paymentMethodIsCash` quedan
+// "congelados" al cargar el gasto, igual que `items.name`/`price` en los
+// pedidos, para que el cierre de día (o un análisis histórico) no cambie si
+// después se edita/borra ese proveedor o método de pago.
 const expenses = new Map();
 
 // "Tipo de envío" (retira/envía) es el único campo realmente fijo — siempre
@@ -263,9 +268,37 @@ function persistProduct(id, p) {
   });
 }
 
+// Alfabético -- a diferencia de categorías/productos no hay un "orden de
+// exhibición" que importe acá, es solo una lista para elegir en un <select>.
+function supplierList() {
+  return Array.from(suppliers.entries())
+    .map(([id, s]) => ({ id, ...s }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+function supplierRow(id, s) {
+  return { id, name: s.name, created_at: new Date(s.createdAt).toISOString() };
+}
+
+function persistSupplier(id, s) {
+  supabase.from('suppliers').upsert(supplierRow(id, s)).then(({ error }) => {
+    if (error) console.error('Error guardando proveedor en Supabase:', error.message);
+  });
+}
+
+async function loadSuppliers() {
+  const { data, error } = await supabase.from('suppliers').select('*');
+  if (error) { console.error('Error cargando proveedores de Supabase:', error.message); return; }
+  data.forEach((row) => {
+    suppliers.set(row.id, { name: row.name, createdAt: new Date(row.created_at).getTime() });
+  });
+  console.log(`Proveedores cargados desde Supabase: ${suppliers.size}`);
+}
+
 // Solo se muestran/mandan los gastos del día abierto actual — el historial
 // completo se conserva igual en Supabase por si algún día hace falta
-// consultarlo, pero no hay pantalla para eso todavía.
+// consultarlo (o cruzarlo por proveedor para un análisis), pero no hay
+// pantalla para eso todavía.
 function expenseList() {
   return Array.from(expenses.entries())
     .filter(([, e]) => e.businessDayId === (openBusinessDay && openBusinessDay.id))
@@ -276,6 +309,8 @@ function expenseList() {
 function expenseRow(id, e) {
   return {
     id,
+    supplier_id: e.supplierId || null,
+    supplier_name: e.supplierName || null,
     description: e.description,
     amount: e.amount,
     payment_method_id: e.paymentMethodId || null,
@@ -298,6 +333,8 @@ async function loadExpenses() {
   if (error) { console.error('Error cargando gastos de Supabase:', error.message); return; }
   data.forEach((row) => {
     expenses.set(row.id, {
+      supplierId: row.supplier_id || null,
+      supplierName: row.supplier_name || null,
       description: row.description,
       amount: row.amount,
       paymentMethodId: row.payment_method_id,
@@ -924,6 +961,7 @@ io.on('connection', (socket) => {
   socket.emit('cash-starts:snapshot', cashStartList());
   socket.emit('catalog:snapshot', catalogSnapshot());
   if (socket.data.isAdmin) socket.emit('expenses:snapshot', expenseList());
+  if (socket.data.isAdmin) socket.emit('suppliers:snapshot', supplierList());
 
   socket.on('driver:update', ({ id, name, lat, lng }) => {
     if (!id || typeof lat !== 'number' || typeof lng !== 'number') return;
@@ -1154,17 +1192,59 @@ io.on('connection', (socket) => {
     io.emit('catalog:snapshot', catalogSnapshot());
   });
 
+  // Lista de proveedores (a quién se le paga) -- reemplaza tipear el nombre
+  // suelto en cada gasto, para no repetir el tipeo y poder analizar gastos
+  // por proveedor más adelante. `id` lo genera el cliente (mismo patrón que
+  // `order:add`/`driverId`) para poder crear el proveedor y el gasto que lo
+  // usa en el mismo tick, sin esperar una confirmación del servidor (el
+  // "+ Nuevo proveedor..." del modal de gasto en proveedores.js).
+  socket.on('supplier:add', ({ id, name }) => {
+    if (!socket.data.isAdmin || !id || !name || suppliers.has(id)) return;
+    const entry = { name: name.toString().slice(0, 80), createdAt: Date.now() };
+    suppliers.set(id, entry);
+    persistSupplier(id, entry);
+    io.to('admin').emit('suppliers:snapshot', supplierList());
+  });
+
+  socket.on('supplier:edit', ({ id, fields }) => {
+    if (!socket.data.isAdmin) return;
+    const s = suppliers.get(id);
+    if (!s || !fields) return;
+    if (typeof fields.name === 'string') s.name = fields.name.slice(0, 80);
+    persistSupplier(id, s);
+    io.to('admin').emit('suppliers:snapshot', supplierList());
+  });
+
+  // Bloqueado si algún gasto (de cualquier día, no solo el abierto) ya lo
+  // usó -- mismo criterio que "no borrar una categoría con productos", para
+  // no perder la trazabilidad de un análisis histórico por las dudas.
+  socket.on('supplier:remove', ({ id }) => {
+    if (!socket.data.isAdmin || !id) return;
+    const inUse = Array.from(expenses.values()).some((e) => e.supplierId === id);
+    if (inUse) return;
+    suppliers.delete(id);
+    supabase.from('suppliers').delete().eq('id', id).then(({ error }) => {
+      if (error) console.error('Error borrando proveedor en Supabase:', error.message);
+    });
+    io.to('admin').emit('suppliers:snapshot', supplierList());
+  });
+
   // Proveedores: un pago que sale de la caja del negocio (no de un delivery
   // en particular). Solo tiene sentido con el día abierto, para poder
   // asociarlo y restarlo del efectivo esperado al cerrar (ver
-  // /api/business-day/end). `paymentMethodName`/`isCash` se copian de la
-  // config actual y quedan fijos en el gasto (ver comentario en el Map).
-  socket.on('expense:add', ({ description, amount, paymentMethodId, driverId }) => {
-    if (!socket.data.isAdmin || !description || typeof amount !== 'number' || !openBusinessDay) return;
+  // /api/business-day/end). `supplierName`/`paymentMethodName`/`isCash` se
+  // copian de la config actual y quedan fijos en el gasto (ver comentario
+  // en el Map).
+  socket.on('expense:add', ({ supplierId, description, amount, paymentMethodId, driverId }) => {
+    if (!socket.data.isAdmin || typeof amount !== 'number' || !openBusinessDay) return;
+    const supplier = suppliers.get(supplierId);
+    if (!supplier) return; // el proveedor es obligatorio -- ver "Proveedor" en el modal de gasto
     const method = formConfig.paymentMethods.find((m) => m.id === paymentMethodId);
     const id = crypto.randomUUID();
     const entry = {
-      description: description.toString().slice(0, 200),
+      supplierId,
+      supplierName: supplier.name,
+      description: (description || '').toString().slice(0, 200),
       amount,
       paymentMethodId: method ? method.id : null,
       paymentMethodName: method ? method.name : null,
@@ -1295,6 +1375,7 @@ async function start() {
   await loadOrders();
   await loadOpenBusinessDay();
   await loadCatalog();
+  await loadSuppliers();
   await loadExpenses();
   await loadDriverCashStarts();
   server.listen(PORT, () => {

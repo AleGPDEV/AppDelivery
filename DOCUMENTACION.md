@@ -152,7 +152,9 @@ Pensado a partir de la planilla real que ya usa el local (control de efectivo/tr
 | `category:add` / `category:edit` / `category:remove` | catalogo.js | admin | `{name}` / `{id, fields}` / `{id}` | alta/edición/baja de una categoría; `remove` no hace nada si la categoría todavía tiene productos |
 | `product:add` / `product:edit` / `product:remove` | catalogo.js | admin | `{categoryId, name, description, price}` / `{id, fields}` / `{id}` | alta/edición/baja de un producto |
 | `order:web-add` | pedido-cliente.js (checkout) | — (público, con validación propia) | `{items:[{productId,qty}], phone, name, pickup, lat, lng, label, custom}` + **ack** | crea un pedido `source:'web'`; precio/id siempre calculados en el servidor, nunca confía en el cliente — ver 3.3 |
-| `expense:add` / `expense:remove` | proveedores.js | admin | `{description, amount, paymentMethodId, driverId}` / `{id}` | alta/baja de un pago a proveedor; `add` no hace nada sin día abierto — ver 3.4. `driverId` es opcional (`null` si el gasto es del negocio, no de un delivery puntual) |
+| `expense:add` / `expense:remove` | proveedores.js | admin | `{supplierId, description, amount, paymentMethodId, driverId}` / `{id}` | alta/baja de un pago a proveedor; `add` no hace nada sin día abierto ni sin `supplierId` válido — ver 3.4. `description` es una nota opcional; `driverId` es opcional (`null` si el gasto es del negocio, no de un delivery puntual) |
+| `supplier:add` / `supplier:edit` / `supplier:remove` | proveedores.js | admin | `{id, name}` / `{id, fields}` / `{id}` | alta/edición/baja de un proveedor; `id` lo genera el cliente (no el servidor); `remove` no hace nada si ese proveedor ya tiene algún gasto cargado — ver 3.4 |
+| `suppliers:snapshot` | servidor, al conectarse (solo admin) y tras cada cambio | admin (sala `admin`, ver 3.4) | lista de proveedores | mismo criterio que `expenses:snapshot` — no le llega a un socket no-admin |
 | `expenses:snapshot` | servidor, al conectarse (solo admin) y tras cada cambio | admin (sala `admin`, ver 3.4) | lista de gastos del día abierto | a diferencia del resto de los snapshots, este NUNCA le llega a un socket no-admin (es plata) |
 
 ### ¿Quién recalcula la ruta óptima de un delivery?
@@ -291,7 +293,9 @@ Pantalla pública separada de la de administración: el cliente final entra, arm
 ```sql
 create table expenses (
   id uuid primary key default gen_random_uuid(),
-  description text not null,
+  supplier_id uuid,
+  supplier_name text,
+  description text,
   amount numeric(10,2) not null default 0,
   payment_method_id text,
   payment_method_name text,
@@ -301,7 +305,20 @@ create table expenses (
   created_at timestamptz not null default now()
 );
 ```
-`payment_method_name`/`payment_method_is_cash` quedan **congelados** al cargar el gasto (mismo criterio que `items.name`/`price` en los pedidos web) — si después se edita o borra ese método de pago en Ajustes, el cálculo de un día ya cerrado no cambia retroactivamente. `expense:add`/`expense:remove` (eventos de socket, admin-gated, mismo patrón que `category:add`/`product:add`) solo funcionan con el día abierto (`businessDayId: openBusinessDay.id`). El 🗑 de `proveedores.js` borra sin confirmación, mismo criterio que `pedidos.js`.
+`supplier_name`/`payment_method_name`/`payment_method_is_cash` quedan **congelados** al cargar el gasto (mismo criterio que `items.name`/`price` en los pedidos web) — si después se edita/borra ese proveedor o método de pago, el cálculo de un día ya cerrado (o un análisis histórico) no cambia retroactivamente. `expense:add`/`expense:remove` (eventos de socket, admin-gated, mismo patrón que `category:add`/`product:add`) solo funcionan con el día abierto (`businessDayId: openBusinessDay.id`). El 🗑 de `proveedores.js` borra sin confirmación, mismo criterio que `pedidos.js`. `description` ya no es obligatorio (ver más abajo — pasó a ser una nota opcional, el campo obligatorio ahora es el proveedor).
+
+**Lista de proveedores** (tabla `suppliers`, nueva) — a pedido explícito ("no estar anotando siempre de quién es el gasto, así se puede sacar un análisis de datos a futuro"). Antes "a quién le pagaste" era un input de texto libre que había que retipear cada vez (con el riesgo de que "Pescadería López" y "pescaderia lopez" quedaran como si fueran proveedores distintos en cualquier análisis futuro); ahora es una lista real que se elige de un `<select>`.
+```sql
+create table suppliers (
+  id uuid primary key,
+  name text not null,
+  created_at timestamptz not null default now()
+);
+```
+- Sin `sortOrder`/`visible` como categorías/productos — es solo una lista para elegir en un desplegable, se ordena alfabéticamente (`localeCompare` con locale `'es'`) en `supplierList()`. Difusión solo a admins (`io.to('admin').emit('suppliers:snapshot', ...)`, mismo criterio que `expenses:snapshot` — es información interna del negocio, no le importa a `pedido-cliente.html`).
+- **`id` lo genera el cliente** (mismo patrón que `order:add`/`driverId`, no que `category:add` que lo genera el servidor) — a propósito, para poder crear un proveedor nuevo y el gasto que lo usa **en el mismo tick**, sin esperar una confirmación de ida y vuelta. Esto es lo que permite el "+ Nuevo proveedor..." dentro del propio modal de "Nuevo gasto" en `proveedores.js`: el `<select id="expense-supplier">` tiene esa opción al final; elegirla despliega un campo de texto inline (`#new-supplier-inline-field`) para el nombre; al guardar, el cliente genera un `crypto.randomUUID()`, emite `supplier:add({id, name})` seguido inmediato de `expense:add({supplierId: id, ...})` por el mismo socket — Socket.IO procesa los eventos de un mismo socket en orden, así que el servidor ya tiene el proveedor en el Map cuando le llega el gasto que lo referencia.
+- **Gestión completa** en una sección aparte de la misma pantalla (`proveedores.js`, debajo de la tabla de gastos): una fila por proveedor con el nombre en un input editable (`change` → `supplier:edit`, mismo patrón "fila editable" que usaba el viejo `catalogo.js`) y un 🗑 — deshabilitado con tooltip si ese proveedor ya tiene algún gasto cargado (`supplier:remove` lo bloquea del lado del servidor recorriendo **todos** los gastos, no solo los del día abierto, para no romper trazabilidad de un análisis histórico), mismo criterio que "no borrar una categoría con productos".
+- **En la tabla de "Gastos a proveedores"**: la columna que antes decía "Descripción" ahora dice "Proveedor" y muestra `supplierName` (o "Sin proveedor" para los gastos viejos, cargados antes de que existiera esta lista) con la nota (`description`, ahora opcional) como texto secundario debajo si se cargó alguna.
 - **"+ Agregar gasto" abre un modal** (`#new-expense-overlay`) con el formulario — ya no es un panel fijo arriba de la tabla. Mismo patrón que "+ Nuevo pedido" en `pedidos.js`/`nuevo-pedido.js`: el modal **no se cierra solo** después de agregar (limpia los campos y muestra "Gasto agregado.", pensado para cargar varios gastos seguidos sin tener que reabrirlo cada vez); el admin lo cierra con la × cuando termina. El botón que abre el modal (y el de "Agregar gasto" adentro) respetan el mismo day-gate de siempre (`!dayOpen` → disabled), con el aviso "Iniciá el día..." visible en la pantalla principal, no escondido dentro de un modal que ni se puede abrir.
 - **Stats de "Gastos hoy"/"Total gastado"/"De eso, efectivo físico"** arriba de la tabla (reusa `.driver-card-stats`/`.driver-stat`, mismo look que la tarjeta de rendición en `dashboard.js` — ver 3.1) — antes era una sola línea de texto muted (`.hint`) fácil de pasar por alto; ahora es un stat visible de un vistazo. El total nunca fue un cálculo nuevo (`renderExpenses()` ya sumaba `total`/`cashTotal` recorriendo `expenses` en cada snapshot), solo cambió dónde se muestra.
 - **`driver_id` (opcional, nullable)** — "Asignar a" en el formulario de nuevo gasto (`proveedores.js`), un `<select>` con "Sin asignar (gasto del negocio)" + la lista de deliverys conectados. Pensado para el caso real que planteó el usuario: "le pedimos al delivery que compre algo con la plata asignada, y ese gasto después se le debe restar por esa razón". Si se asigna, el gasto se resta de "Total a entregar" en la tarjeta de ese delivery en Dashboard (ver 3.1) — pero **no** afecta el cálculo agregado del negocio: `/api/business-day/end` sigue sumando todos los gastos en efectivo del día sin importar `driver_id` (ver más abajo), porque esa plata salió igual de la caja del negocio, solo que la tenía físicamente un delivery en el momento de gastarla. La columna "Asignado a" de la tabla de gastos muestra el nombre del delivery (o "—" si no tiene).

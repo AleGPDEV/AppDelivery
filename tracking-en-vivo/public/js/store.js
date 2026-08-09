@@ -29,6 +29,7 @@ const state = {
   formConfig: { customFields: [], paymentMethods: [] },
   categories: new Map(),
   products: new Map(),
+  suppliers: new Map(),
   expenses: new Map(),
   cashStarts: new Map(),
   businessDay: null,
@@ -95,6 +96,12 @@ socket.on('catalog:snapshot', (payload) => {
   relay('catalog:snapshot', payload);
 });
 
+socket.on('suppliers:snapshot', (list) => {
+  state.suppliers.clear();
+  (list || []).forEach((s) => state.suppliers.set(s.id, s));
+  relay('suppliers:snapshot', list);
+});
+
 socket.on('expenses:snapshot', (list) => {
   state.expenses.clear();
   (list || []).forEach((e) => state.expenses.set(e.id, e));
@@ -126,6 +133,7 @@ export const Store = {
   getFormConfig: () => state.formConfig,
   getCategories: () => state.categories,
   getProducts: () => state.products,
+  getSuppliers: () => state.suppliers,
   getExpenses: () => state.expenses,
   getCashStarts: () => state.cashStarts,
   getBusinessDay: () => state.businessDay,
