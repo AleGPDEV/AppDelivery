@@ -85,10 +85,31 @@ if (!orderId) {
     api.map.fitBounds(bounds, 60);
   }
 
+  // El contenedor está oculto (display:none) hasta un instante antes de
+  // crear el mapa -- si Maps se construye mientras el layout todavía no
+  // terminó de acomodarse (o ya está `display:''` pero el navegador no
+  // flusheó el layout todavía), mide un tamaño viejo/0x0 y los tiles quedan
+  // mal calculados/desalineados. En vez de crear el mapa y corregir después
+  // (visto en vivo que a veces no alcanza), se espera a que el contenedor
+  // reporte un tamaño real medido -- recién ahí se construye `new
+  // maps.Map(...)`, así arranca bien desde el principio en vez de depender
+  // de un resize posterior.
+  function waitForRealSize(el, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      (function check() {
+        if (el.offsetWidth > 0 && el.offsetHeight > 0) { resolve(); return; }
+        if (Date.now() - start > timeoutMs) { resolve(); return; }
+        requestAnimationFrame(check);
+      })();
+    });
+  }
+
   async function getMap() {
     if (mapApi) return mapApi;
     const maps = await loadGoogleMaps();
     const mapEl = document.getElementById('track-map');
+    await waitForRealSize(mapEl);
     const map = new maps.Map(mapEl, {
       center: { lat: -34.9011, lng: -56.1645 },
       zoom: 14,
@@ -96,16 +117,8 @@ if (!orderId) {
       streetViewControl: false,
     });
     mapApi = { maps, map, driverMarker: null, destMarker: null };
-    // El contenedor está oculto (display:none) hasta un instante antes de
-    // crear el mapa -- si Maps mide el tamaño en ese mismo instante (o el
-    // layout sigue moviéndose un poco más, visto en vivo en Chrome de
-    // escritorio además de navegadores integrados), los tiles quedan mal
-    // calculados/desalineados y un solo resize "al toque" no siempre
-    // alcanza. Un ResizeObserver es más robusto que adivinar un momento
-    // puntual: dispara el resize de Maps cada vez que el contenedor
-    // realmente cambia de tamaño, las veces que haga falta -- mismo fix que
-    // ya usa pedido-cliente.js para el mapa del checkout, pero con un
-    // disparador más confiable que un solo requestAnimationFrame.
+    // Backstop para cualquier cambio de tamaño posterior a la construcción
+    // (ej. el usuario cambia el zoom del navegador, gira el celular).
     let lastSize = '';
     new ResizeObserver(() => {
       if (mapEl.clientWidth === 0) return;
