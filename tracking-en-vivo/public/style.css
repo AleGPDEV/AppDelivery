@@ -614,9 +614,9 @@ button.small {
 
 .order-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 0.85rem;
-  white-space: nowrap;
 }
 
 .order-table th {
@@ -633,15 +633,20 @@ button.small {
   top: 0;
   background: var(--panel);
   z-index: 1;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .order-table td {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .order-table select {
-  width: auto;
+  width: 100%;
+  max-width: 100%;
   padding: 4px 6px;
   font-size: 0.8rem;
 }

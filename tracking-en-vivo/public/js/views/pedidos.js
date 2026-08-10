@@ -359,6 +359,7 @@ async function mount(root) {
     const tdOrigin = document.createElement('td');
     tdOrigin.style.display = 'flex';
     tdOrigin.style.gap = '4px';
+    tdOrigin.style.flexWrap = 'wrap';
     if (o.source === 'web') {
       const webBadge = document.createElement('span');
       webBadge.textContent = '🌐 Web';
@@ -442,6 +443,7 @@ async function mount(root) {
     const tdActions = document.createElement('td');
     tdActions.style.display = 'flex';
     tdActions.style.gap = '4px';
+    tdActions.style.flexWrap = 'wrap';
 
     if (o.items && o.items.length > 0) {
       const itemsBtn = document.createElement('button');
