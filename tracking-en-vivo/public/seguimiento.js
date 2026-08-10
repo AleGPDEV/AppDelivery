@@ -82,6 +82,18 @@ if (!orderId) {
       mapTypeControl: false,
       streetViewControl: false,
     });
+    // El contenedor está oculto (display:none) hasta un instante antes de
+    // crear el mapa (recién se muestra cuando llega el primer tracking:order
+    // que no es pickup) -- si Maps mide el tamaño del contenedor en ese mismo
+    // instante, a veces le agarra las dimensiones viejas (0x0) y los tiles
+    // quedan mal calculados/desalineados. Un resize en el siguiente frame
+    // (cuando el layout ya se acomodó) lo corrige -- mismo fix que ya usa
+    // pedido-cliente.js para el mapa del checkout.
+    await new Promise((resolve) => requestAnimationFrame(() => {
+      maps.event.trigger(map, 'resize');
+      map.setCenter({ lat: -34.9011, lng: -56.1645 });
+      resolve();
+    }));
     mapApi = { maps, map, driverMarker: null, destMarker: null };
     return mapApi;
   }
