@@ -25,6 +25,7 @@ const socket = io();
 const state = {
   drivers: new Map(),
   orders: new Map(),
+  separators: new Map(),
   routes: new Map(),
   formConfig: { customFields: [], paymentMethods: [] },
   categories: new Map(),
@@ -67,6 +68,12 @@ socket.on('order:update', (o) => {
 socket.on('order:remove', (payload) => {
   state.orders.delete(payload.id);
   relay('order:remove', payload);
+});
+
+socket.on('separators:snapshot', (list) => {
+  state.separators.clear();
+  (list || []).forEach((s) => state.separators.set(s.id, s));
+  relay('separators:snapshot', list);
 });
 
 socket.on('routes:snapshot', (list) => {
@@ -129,6 +136,7 @@ export const Store = {
   off(name, cb) { bus.removeEventListener(name, cb); },
   getDrivers: () => state.drivers,
   getOrders: () => state.orders,
+  getSeparators: () => state.separators,
   getRoutes: () => state.routes,
   getFormConfig: () => state.formConfig,
   getCategories: () => state.categories,

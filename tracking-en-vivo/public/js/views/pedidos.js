@@ -2,25 +2,42 @@ import { Store } from '/js/store.js';
 import { Router } from '/js/router.js';
 import { recomputeRouteForDriver } from '/js/route-helper.js';
 import { createDriverLabel } from '/js/driver-label.js';
+import { createMapPanel } from '/js/map-panel.js';
+import { initReorderDrag } from '/js/reorder-drag.js';
 import { template as newOrderFormTemplate, mount as mountNewOrderForm, unmount as unmountNewOrderForm } from '/js/views/nuevo-pedido.js';
 
+// Mapa a la izquierda (mismo componente que Dashboard: deliverys, rutas,
+// asignar desde el popup) + lista de pedidos a la derecha, arrastrable a
+// mano con un orden personalizado y con "separadores" (barreras con texto)
+// que se pueden intercalar entre pedidos. El orden se guarda para todos
+// (persistido en Supabase vía order:reorder/separator:*), no es una
+// preferencia local del que mira la pantalla.
 const template = `
 <main class="wide">
-  <section class="panel">
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-      <h2 style="margin:0;">Registro de pedidos</h2>
-      <button id="new-order-open-btn" type="button" class="primary small">+ Nuevo pedido</button>
-    </div>
-    <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
-    <div class="table-scroll">
-      <table class="order-table">
-        <thead>
-          <tr id="order-thead-row"></tr>
-        </thead>
-        <tbody id="order-tbody"></tbody>
-      </table>
-    </div>
-  </section>
+  <div class="dashboard-layout">
+    <section class="panel dashboard-map-panel">
+      <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
+      <div id="map"></div>
+    </section>
+    <section class="panel pedidos-orders-panel">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <h2 style="margin:0;">Registro de pedidos</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="add-separator-btn" type="button" class="small">+ Agregar separador</button>
+          <button id="new-order-open-btn" type="button" class="primary small">+ Nuevo pedido</button>
+        </div>
+      </div>
+      <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
+      <div class="table-scroll">
+        <table class="order-table">
+          <thead>
+            <tr id="order-thead-row"></tr>
+          </thead>
+          <tbody id="order-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </main>
 
 <div id="new-order-overlay" class="modal-overlay" style="display:none;">
@@ -80,14 +97,29 @@ const FIELD_COLUMNS = [
   { key: 'orderNumber', label: 'Nº pedido' },
   { key: 'amount', label: 'Monto' },
 ];
-const FIXED_COLUMNS = ['Delivery asignado', 'Método de pago', 'Estado', ''];
 
-let unsubscribe = null;
+// Token de "generación": mismo mecanismo que dashboard.js — mount() es
+// async (espera a que cargue Google Maps), y si el usuario navega a otra
+// pestaña durante esa espera, la continuación no debe tocar un DOM que ya
+// no está montado.
+let currentGeneration = 0;
+let active = null; // { mapPanel, unsubscribe, teardownDriverLabel } de la instancia montada
 
-function mount(root) {
+function teardownActive() {
+  if (!active) return;
+  active.mapPanel.teardown();
+  active.unsubscribe();
+  active.teardownDriverLabel();
+  active = null;
+}
+
+async function mount(root) {
+  const myGeneration = ++currentGeneration;
+  const driverCountEl = root.querySelector('#driver-count');
   const orderTheadRowEl = root.querySelector('#order-thead-row');
   const orderTbodyEl = root.querySelector('#order-tbody');
   const orderCountEl = root.querySelector('#order-count');
+  const addSeparatorBtn = root.querySelector('#add-separator-btn');
   const editOverlay = root.querySelector('#edit-overlay');
   const editCloseBtn = root.querySelector('#edit-close-btn');
   const editPhoneEl = root.querySelector('#edit-phone');
@@ -108,10 +140,20 @@ function mount(root) {
   const newOrderCloseBtn = root.querySelector('#new-order-close-btn');
   const newOrderModalBodyEl = root.querySelector('#new-order-modal-body');
 
+  const mapPanel = await createMapPanel(root.querySelector('#map'), { driverCountEl });
+  if (myGeneration !== currentGeneration) { mapPanel.teardown(); return; } // se navegó a otra vista mientras cargaba
+
   const socket = Store.socket;
   const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
   let formConfig = Store.getFormConfig();
   let editingOrderId = null;
+
+  // null = orden personalizado (persistido, arrastrable, con separadores
+  // intercalados). { key, dir } = ordenado por esa columna (asc/desc); en
+  // ese modo los separadores se ocultan y arrastrar queda deshabilitado —
+  // un 3er click en la misma columna vuelve a null.
+  let currentSort = null;
+  const itemTypeById = new Map(); // id -> 'order' | 'separator', reconstruido en cada render
 
   // Mismo motivo que en nuevo-pedido.js: el GPS manda driver:update cada
   // pocos segundos y redibujar la tabla entera en cada uno cerraría solo
@@ -131,24 +173,55 @@ function mount(root) {
     return [...builtins, ...customs];
   }
 
+  // Columnas ordenables (todas menos la de agarrar-y-arrastrar y la de
+  // acciones) — "porque nunca sabes por qué el cliente va a querer ordenar".
+  function columnDefs() {
+    const cols = [
+      { sortKey: 'seq', label: 'Ticket' },
+      { sortKey: 'source', label: 'Origen' },
+    ];
+    visibleFieldColumns().forEach((c) => cols.push({ sortKey: c.key, label: c.label }));
+    cols.push({ sortKey: 'assignedTo', label: 'Delivery asignado' });
+    cols.push({ sortKey: 'paymentMethod', label: 'Método de pago' });
+    cols.push({ sortKey: 'status', label: 'Estado' });
+    cols.push({ sortKey: null, label: '' });
+    return cols;
+  }
+
+  function cycleSort(key) {
+    if (!currentSort || currentSort.key !== key) {
+      currentSort = { key, dir: 'asc' };
+    } else if (currentSort.dir === 'asc') {
+      currentSort = { key, dir: 'desc' };
+    } else {
+      currentSort = null;
+    }
+    renderHeader();
+    renderOrders();
+  }
+
   function renderHeader() {
     orderTheadRowEl.innerHTML = '';
-    const tick = document.createElement('th');
-    tick.textContent = 'Ticket';
-    orderTheadRowEl.appendChild(tick);
-    const origin = document.createElement('th');
-    origin.textContent = 'Origen';
-    orderTheadRowEl.appendChild(origin);
-    visibleFieldColumns().forEach((c) => {
+    const handleTh = document.createElement('th');
+    handleTh.className = 'order-th-handle';
+    orderTheadRowEl.appendChild(handleTh);
+
+    columnDefs().forEach((col) => {
       const th = document.createElement('th');
-      th.textContent = c.label;
+      let text = col.label;
+      if (col.sortKey) {
+        th.classList.add('sortable');
+        th.addEventListener('click', () => cycleSort(col.sortKey));
+        if (currentSort && currentSort.key === col.sortKey) {
+          text += currentSort.dir === 'asc' ? ' ▲' : ' ▼';
+        }
+      }
+      th.textContent = text;
       orderTheadRowEl.appendChild(th);
     });
-    FIXED_COLUMNS.forEach((label) => {
-      const th = document.createElement('th');
-      th.textContent = label;
-      orderTheadRowEl.appendChild(th);
-    });
+
+    addSeparatorBtn.disabled = !!currentSort;
+    addSeparatorBtn.title = currentSort ? 'Limpiá el ordenamiento por columna para agregar separadores' : '';
   }
 
   function orderPrecisionTag(o) {
@@ -165,127 +238,247 @@ function mount(root) {
     return (o.custom && o.custom[key]) || '';
   }
 
+  function valueForSortKey(key, o) {
+    if (key === 'seq') return o.seq || 0;
+    if (key === 'source') return o.source === 'web' ? 'Web' : '';
+    if (key === 'amount') return o.amount || 0;
+    if (key === 'assignedTo') return o.assignedTo ? driverLabel(o.assignedTo) : '';
+    if (key === 'paymentMethod') return o.paymentMethod || '';
+    if (key === 'status') {
+      const found = STATUS_OPTIONS.find(([value]) => value === (o.status || 'pending'));
+      return found ? found[1] : '';
+    }
+    if (key === 'phone' || key === 'name' || key === 'orderNumber') return o[key] || '';
+    return (o.custom && o.custom[key]) || '';
+  }
+
+  function compareByKey(key, a, b) {
+    const av = valueForSortKey(key, a);
+    const bv = valueForSortKey(key, b);
+    if (typeof av === 'number' && typeof bv === 'number') return av - bv;
+    return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  // Orden personalizado: pedidos + separadores comparten el mismo espacio
+  // numérico de sortOrder para poder intercalarse en una sola lista. Un
+  // pedido que nunca se arrastró no tiene sortOrder todavía — cae ordenado
+  // por su ticket (orden de creación) entre los que sí lo tienen.
+  function effectiveSortOrder(item) {
+    if (item.data.sortOrder != null) return item.data.sortOrder;
+    return item.type === 'order' ? (item.data.seq || 0) : 0;
+  }
+
+  function combinedList() {
+    const orders = Array.from(Store.getOrders().entries())
+      .filter(([, o]) => !o.archivedAt)
+      .map(([id, o]) => ({ type: 'order', id, data: o }));
+
+    if (currentSort) {
+      const { key, dir } = currentSort;
+      const factor = dir === 'asc' ? 1 : -1;
+      return orders.slice().sort((a, b) => factor * compareByKey(key, a.data, b.data));
+    }
+
+    const separators = Array.from(Store.getSeparators().entries())
+      .map(([id, s]) => ({ type: 'separator', id, data: s }));
+    const combined = [...orders, ...separators];
+    combined.sort((a, b) => effectiveSortOrder(a) - effectiveSortOrder(b));
+    return combined;
+  }
+
+  function handleCell(dragEnabled) {
+    const td = document.createElement('td');
+    td.className = 'order-drag-cell';
+    if (dragEnabled) {
+      const handle = document.createElement('span');
+      handle.className = 'reorder-handle';
+      handle.textContent = '⠿';
+      td.appendChild(handle);
+    }
+    return td;
+  }
+
+  function buildOrderRow(id, o, fieldColumns, dragEnabled) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = id;
+    tr.appendChild(handleCell(dragEnabled));
+
+    const tdTicket = document.createElement('td');
+    tdTicket.textContent = o.seq != null ? `#${o.seq}` : '';
+    tr.appendChild(tdTicket);
+
+    const tdOrigin = document.createElement('td');
+    tdOrigin.textContent = o.source === 'web' ? '🌐 Web' : '';
+    tr.appendChild(tdOrigin);
+
+    fieldColumns.forEach((c) => {
+      const td = document.createElement('td');
+      td.textContent = fieldCellContent(c.key, o);
+      tr.appendChild(td);
+    });
+
+    const tdAssign = document.createElement('td');
+    const assignSelect = document.createElement('select');
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = 'Sin asignar';
+    assignSelect.appendChild(noneOpt);
+    Store.getDrivers().forEach((d, driverId) => {
+      const opt = document.createElement('option');
+      opt.value = driverId;
+      opt.textContent = d.name;
+      assignSelect.appendChild(opt);
+    });
+    if (o.assignedTo && !Store.getDrivers().has(o.assignedTo)) {
+      const opt = document.createElement('option');
+      opt.value = o.assignedTo;
+      opt.textContent = `${driverLabel(o.assignedTo)} (desconectado)`;
+      assignSelect.appendChild(opt);
+    }
+    assignSelect.value = o.assignedTo || '';
+    assignSelect.addEventListener('change', () => assignOrder(id, assignSelect.value || null));
+    tdAssign.appendChild(assignSelect);
+
+    const tdPayment = document.createElement('td');
+    const paySelect = document.createElement('select');
+    paymentOptions().forEach((pm) => {
+      const opt = document.createElement('option');
+      opt.value = pm;
+      opt.textContent = pm || 'Sin especificar';
+      paySelect.appendChild(opt);
+    });
+    paySelect.value = o.paymentMethod || '';
+    paySelect.addEventListener('change', () => {
+      socket.emit('order:edit', { id, fields: { paymentMethod: paySelect.value } });
+    });
+    tdPayment.appendChild(paySelect);
+
+    const tdStatus = document.createElement('td');
+    const statusSelect = document.createElement('select');
+    statusSelect.className = 'status-select';
+    STATUS_OPTIONS.forEach(([value, text]) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = text;
+      statusSelect.appendChild(opt);
+    });
+    statusSelect.value = o.status || 'pending';
+    statusSelect.dataset.status = statusSelect.value;
+    statusSelect.addEventListener('change', () => {
+      statusSelect.dataset.status = statusSelect.value;
+      socket.emit('order:edit', { id, fields: { status: statusSelect.value } });
+    });
+    tdStatus.appendChild(statusSelect);
+
+    const tdActions = document.createElement('td');
+    tdActions.style.display = 'flex';
+    tdActions.style.gap = '4px';
+
+    if (o.items && o.items.length > 0) {
+      const itemsBtn = document.createElement('button');
+      itemsBtn.type = 'button';
+      itemsBtn.className = 'small';
+      itemsBtn.textContent = '🧾';
+      itemsBtn.title = 'Ver detalle del pedido';
+      itemsBtn.addEventListener('click', () => openItemsModal(o));
+      tdActions.appendChild(itemsBtn);
+    }
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'small';
+    editBtn.textContent = '✏️';
+    editBtn.title = 'Editar pedido';
+    editBtn.addEventListener('click', () => openEditModal(id, o));
+    tdActions.appendChild(editBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'danger small';
+    delBtn.textContent = '🗑';
+    delBtn.title = 'Eliminar pedido';
+    delBtn.addEventListener('click', () => {
+      socket.emit('order:remove', { id });
+    });
+    tdActions.appendChild(delBtn);
+
+    tr.append(tdAssign, tdPayment, tdStatus, tdActions);
+    return tr;
+  }
+
+  function buildSeparatorRow(id, s, colspanCount, dragEnabled) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = id;
+    tr.className = 'separator-row';
+    tr.appendChild(handleCell(dragEnabled));
+
+    const td = document.createElement('td');
+    td.colSpan = colspanCount;
+    td.className = 'separator-cell';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Texto del separador (opcional)';
+    input.maxLength = 80;
+    input.value = s.text || '';
+    let saveTimer = null;
+    input.addEventListener('input', () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        socket.emit('separator:edit', { id, text: input.value });
+      }, 400);
+    });
+    td.appendChild(input);
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'danger small';
+    delBtn.textContent = '🗑';
+    delBtn.title = 'Eliminar separador';
+    delBtn.addEventListener('click', () => socket.emit('separator:remove', { id }));
+    td.appendChild(delBtn);
+
+    tr.appendChild(td);
+    return tr;
+  }
+
   function renderOrders() {
     orderTbodyEl.innerHTML = '';
-    const active = Array.from(Store.getOrders().entries()).filter(([, o]) => !o.archivedAt);
-    orderCountEl.textContent = active.length === 0
-      ? 'Todavía no cargaste ningún pedido.'
-      : `${active.length} pedido${active.length === 1 ? '' : 's'} registrado${active.length === 1 ? '' : 's'}.`;
+    itemTypeById.clear();
 
-    const sorted = active.sort((a, b) => {
-      const byNumber = (a[1].orderNumber || '').localeCompare(b[1].orderNumber || '', undefined, { numeric: true });
-      if (byNumber !== 0) return byNumber;
-      return (a[1].seq || 0) - (b[1].seq || 0);
-    });
+    const items = combinedList();
+    const totalOrders = items.filter((it) => it.type === 'order').length;
+    orderCountEl.textContent = totalOrders === 0
+      ? 'Todavía no cargaste ningún pedido.'
+      : `${totalOrders} pedido${totalOrders === 1 ? '' : 's'} registrado${totalOrders === 1 ? '' : 's'}.`;
 
     const fieldColumns = visibleFieldColumns();
+    const dragEnabled = !currentSort;
+    const colspanCount = 2 + fieldColumns.length + 3; // ticket+origen + campos + delivery/pago/estado (sin acciones)
 
-    sorted.forEach(([id, o]) => {
-      const tr = document.createElement('tr');
-
-      const tdTicket = document.createElement('td');
-      tdTicket.textContent = o.seq != null ? `#${o.seq}` : '';
-      tr.appendChild(tdTicket);
-
-      const tdOrigin = document.createElement('td');
-      tdOrigin.textContent = o.source === 'web' ? '🌐 Web' : '';
-      tr.appendChild(tdOrigin);
-
-      fieldColumns.forEach((c) => {
-        const td = document.createElement('td');
-        td.textContent = fieldCellContent(c.key, o);
-        tr.appendChild(td);
-      });
-
-      const tdAssign = document.createElement('td');
-      const assignSelect = document.createElement('select');
-      const noneOpt = document.createElement('option');
-      noneOpt.value = '';
-      noneOpt.textContent = 'Sin asignar';
-      assignSelect.appendChild(noneOpt);
-      Store.getDrivers().forEach((d, driverId) => {
-        const opt = document.createElement('option');
-        opt.value = driverId;
-        opt.textContent = d.name;
-        assignSelect.appendChild(opt);
-      });
-      if (o.assignedTo && !Store.getDrivers().has(o.assignedTo)) {
-        const opt = document.createElement('option');
-        opt.value = o.assignedTo;
-        opt.textContent = `${driverLabel(o.assignedTo)} (desconectado)`;
-        assignSelect.appendChild(opt);
+    items.forEach((item) => {
+      itemTypeById.set(item.id, item.type);
+      if (item.type === 'separator') {
+        orderTbodyEl.appendChild(buildSeparatorRow(item.id, item.data, colspanCount, dragEnabled));
+      } else {
+        orderTbodyEl.appendChild(buildOrderRow(item.id, item.data, fieldColumns, dragEnabled));
       }
-      assignSelect.value = o.assignedTo || '';
-      assignSelect.addEventListener('change', () => assignOrder(id, assignSelect.value || null));
-      tdAssign.appendChild(assignSelect);
-
-      const tdPayment = document.createElement('td');
-      const paySelect = document.createElement('select');
-      paymentOptions().forEach((pm) => {
-        const opt = document.createElement('option');
-        opt.value = pm;
-        opt.textContent = pm || 'Sin especificar';
-        paySelect.appendChild(opt);
-      });
-      paySelect.value = o.paymentMethod || '';
-      paySelect.addEventListener('change', () => {
-        socket.emit('order:edit', { id, fields: { paymentMethod: paySelect.value } });
-      });
-      tdPayment.appendChild(paySelect);
-
-      const tdStatus = document.createElement('td');
-      const statusSelect = document.createElement('select');
-      statusSelect.className = 'status-select';
-      STATUS_OPTIONS.forEach(([value, text]) => {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = text;
-        statusSelect.appendChild(opt);
-      });
-      statusSelect.value = o.status || 'pending';
-      statusSelect.dataset.status = statusSelect.value;
-      statusSelect.addEventListener('change', () => {
-        statusSelect.dataset.status = statusSelect.value;
-        socket.emit('order:edit', { id, fields: { status: statusSelect.value } });
-      });
-      tdStatus.appendChild(statusSelect);
-
-      const tdActions = document.createElement('td');
-      tdActions.style.display = 'flex';
-      tdActions.style.gap = '4px';
-
-      if (o.items && o.items.length > 0) {
-        const itemsBtn = document.createElement('button');
-        itemsBtn.type = 'button';
-        itemsBtn.className = 'small';
-        itemsBtn.textContent = '🧾';
-        itemsBtn.title = 'Ver detalle del pedido';
-        itemsBtn.addEventListener('click', () => openItemsModal(o));
-        tdActions.appendChild(itemsBtn);
-      }
-
-      const editBtn = document.createElement('button');
-      editBtn.type = 'button';
-      editBtn.className = 'small';
-      editBtn.textContent = '✏️';
-      editBtn.title = 'Editar pedido';
-      editBtn.addEventListener('click', () => openEditModal(id, o));
-      tdActions.appendChild(editBtn);
-
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'danger small';
-      delBtn.textContent = '🗑';
-      delBtn.title = 'Eliminar pedido';
-      delBtn.addEventListener('click', () => {
-        socket.emit('order:remove', { id });
-      });
-      tdActions.appendChild(delBtn);
-
-      tr.append(tdAssign, tdPayment, tdStatus, tdActions);
-      orderTbodyEl.appendChild(tr);
     });
   }
+
+  function persistReorder(orderedIds) {
+    const items = orderedIds
+      .filter((id) => itemTypeById.has(id))
+      .map((id) => ({ id, type: itemTypeById.get(id) }));
+    socket.emit('order:reorder', { items });
+  }
+
+  initReorderDrag(orderTbodyEl, persistReorder);
+
+  addSeparatorBtn.addEventListener('click', () => {
+    if (currentSort) return;
+    socket.emit('separator:add', { id: crypto.randomUUID(), text: '' });
+  });
 
   function openItemsModal(o) {
     itemsListEl.innerHTML = '';
@@ -437,6 +630,7 @@ function mount(root) {
     if (e.detail.assignedTo) recomputeRouteForDriver(e.detail.assignedTo);
   };
   const onOrderRemove = () => renderOrders();
+  const onSeparatorsSnapshot = () => renderOrders();
 
   Store.on('form-config:snapshot', onFormConfigSnapshot);
   Store.on('drivers:snapshot', onDriversSnapshot);
@@ -445,8 +639,9 @@ function mount(root) {
   Store.on('orders:snapshot', onOrdersSnapshot);
   Store.on('order:update', onOrderUpdate);
   Store.on('order:remove', onOrderRemove);
+  Store.on('separators:snapshot', onSeparatorsSnapshot);
 
-  unsubscribe = () => {
+  const unsubscribe = () => {
     Store.off('form-config:snapshot', onFormConfigSnapshot);
     Store.off('drivers:snapshot', onDriversSnapshot);
     Store.off('driver:update', onDriverUpdate);
@@ -454,19 +649,20 @@ function mount(root) {
     Store.off('orders:snapshot', onOrdersSnapshot);
     Store.off('order:update', onOrderUpdate);
     Store.off('order:remove', onOrderRemove);
-    teardownDriverLabel();
+    Store.off('separators:snapshot', onSeparatorsSnapshot);
     // Si se navega a otra pestaña con el modal de "Nuevo pedido" todavía
     // abierto, no dejar sus propias suscripciones a Store colgadas.
     if (newOrderFormMounted) unmountNewOrderForm();
   };
 
+  active = { mapPanel, unsubscribe, teardownDriverLabel };
   renderHeader();
   renderOrders();
 }
 
 function unmount() {
-  if (unsubscribe) unsubscribe();
-  unsubscribe = null;
+  currentGeneration++;
+  teardownActive();
 }
 
 Router.register('/pedidos.html', {

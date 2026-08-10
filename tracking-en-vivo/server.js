@@ -107,8 +107,18 @@ app.post('/api/change-password', async (req, res) => {
 
 // driverId -> { name, lat, lng, updatedAt }
 const drivers = new Map();
-// orderId -> { seq, orderNumber, phone, name, lat, lng, label, assignedTo, status, amount, paymentMethod, reconciledAt, updatedAt }
+// orderId -> { seq, orderNumber, phone, name, lat, lng, label, assignedTo, status, amount, paymentMethod, reconciledAt, updatedAt, sortOrder }
+// `sortOrder` es el orden manual (arrastrar y soltar en Pedidos) — null en
+// pedidos que nunca se arrastraron, que caen al orden natural por `seq` (ver
+// orderList()/pedidos.js). Se reasigna a TODOS los pedidos+separadores
+// visibles en cada `order:reorder`, mismo criterio que sortOrder en
+// categorías/productos del catálogo.
 const orders = new Map();
+// separatorId -> { text, sortOrder, createdAt } — "barreras" con texto que el
+// admin puede intercalar entre pedidos en Pedidos, para agrupar visualmente
+// (ej. "Zona norte" / "Para las 20hs"). Comparten el mismo espacio numérico
+// de sortOrder que los pedidos para poder intercalarse en una sola lista.
+const separators = new Map();
 // Número de ticket, único y creciente, asignado por el servidor — a
 // diferencia de "Nº de pedido" (lo tipea el admin, se puede repetir a
 // propósito), esto es lo único que diferencia dos pedidos con total
@@ -403,7 +413,33 @@ function orderRow(id, o) {
     custom: o.custom || {},
     source: o.source || 'admin',
     items: o.items || [],
+    sort_order: o.sortOrder != null ? o.sortOrder : null,
   };
+}
+
+function separatorList() {
+  return Array.from(separators.entries())
+    .map(([id, s]) => ({ id, ...s }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function separatorRow(id, s) {
+  return { id, text: s.text || '', sort_order: s.sortOrder, created_at: new Date(s.createdAt).toISOString() };
+}
+
+function persistSeparator(id, s) {
+  supabase.from('order_separators').upsert(separatorRow(id, s)).then(({ error }) => {
+    if (error) console.error('Error guardando separador en Supabase:', error.message);
+  });
+}
+
+async function loadSeparators() {
+  const { data, error } = await supabase.from('order_separators').select('*');
+  if (error) { console.error('Error cargando separadores de Supabase:', error.message); return; }
+  data.forEach((row) => {
+    separators.set(row.id, { text: row.text || '', sortOrder: row.sort_order, createdAt: new Date(row.created_at).getTime() });
+  });
+  console.log(`Separadores de pedidos cargados desde Supabase: ${separators.size}`);
 }
 
 // Los campos personalizados que el admin crea en "Personalizar campos del
@@ -465,6 +501,7 @@ async function loadOrders() {
       custom: row.custom || {},
       source: row.source || 'admin',
       items: row.items || [],
+      sortOrder: row.sort_order != null ? row.sort_order : null,
     });
   });
   console.log(`Pedidos cargados desde Supabase: ${orders.size}`);
@@ -1000,6 +1037,7 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   socket.emit('drivers:snapshot', driverList());
   socket.emit('orders:snapshot', orderList());
+  socket.emit('separators:snapshot', separatorList());
   socket.emit('routes:snapshot', routeList());
   socket.emit('form-config:snapshot', formConfig);
   socket.emit('business-day:status', { day: openBusinessDay });
@@ -1115,6 +1153,62 @@ io.on('connection', (socket) => {
   socket.on('order:remove', ({ id }) => {
     if (!socket.data.isAdmin) return;
     removeOrder(id);
+  });
+
+  // Orden manual de Pedidos (arrastrar y soltar) + separadores intercalados.
+  // `items` es la lista completa, en el orden final, de todo lo que estaba
+  // visible en la tabla al soltar -- se reindexa TODO de una (0, 1, 2, ...),
+  // mismo criterio que el reordenamiento de categorías del catálogo, en vez
+  // de tratar de insertar un solo elemento entre sus vecinos.
+  socket.on('order:reorder', ({ items }) => {
+    if (!socket.data.isAdmin || !Array.isArray(items)) return;
+    items.forEach(({ type, id }, index) => {
+      if (type === 'order') {
+        const o = orders.get(id);
+        if (o && o.sortOrder !== index) {
+          o.sortOrder = index;
+          persistOrder(id, o);
+          io.emit('order:update', { id, ...o });
+        }
+      } else if (type === 'separator') {
+        const s = separators.get(id);
+        if (s && s.sortOrder !== index) {
+          s.sortOrder = index;
+          persistSeparator(id, s);
+        }
+      }
+    });
+    io.emit('separators:snapshot', separatorList());
+  });
+
+  // Separadores: "barreras" con texto para agrupar pedidos a simple vista en
+  // Pedidos (ej. "Zona norte"). `id` lo genera el cliente (mismo patrón que
+  // `order:add`) para poder crearlo y ubicarlo en la lista arrastrable en el
+  // mismo tick, sin esperar una confirmación del servidor.
+  socket.on('separator:add', ({ id, text }) => {
+    if (!socket.data.isAdmin || !id || separators.has(id)) return;
+    const entry = { text: (text || '').toString().slice(0, 80), sortOrder: separators.size + orders.size, createdAt: Date.now() };
+    separators.set(id, entry);
+    persistSeparator(id, entry);
+    io.emit('separators:snapshot', separatorList());
+  });
+
+  socket.on('separator:edit', ({ id, text }) => {
+    if (!socket.data.isAdmin) return;
+    const s = separators.get(id);
+    if (!s || typeof text !== 'string') return;
+    s.text = text.slice(0, 80);
+    persistSeparator(id, s);
+    io.emit('separators:snapshot', separatorList());
+  });
+
+  socket.on('separator:remove', ({ id }) => {
+    if (!socket.data.isAdmin || !id) return;
+    separators.delete(id);
+    supabase.from('order_separators').delete().eq('id', id).then(({ error }) => {
+      if (error) console.error('Error borrando separador en Supabase:', error.message);
+    });
+    io.emit('separators:snapshot', separatorList());
   });
 
   // "Cerrar rendición": marca como conciliados los pedidos entregados de ese
@@ -1418,6 +1512,7 @@ async function start() {
   await bootstrapAdmin();
   await loadFormConfig();
   await loadOrders();
+  await loadSeparators();
   await loadOpenBusinessDay();
   await loadCatalog();
   await loadSuppliers();

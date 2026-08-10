@@ -407,6 +407,13 @@ button.small {
   margin-top: 14px;
 }
 
+/* Pedidos reusa el mismo layout mapa+panel que Dashboard (.dashboard-layout/
+   .dashboard-map-panel), pero el panel derecho es una tabla, no tarjetas. */
+.pedidos-orders-panel {
+  flex: 1 1 58%;
+  min-width: 320px;
+}
+
 @media (max-width: 900px) {
   .dashboard-layout {
     flex-direction: column;
@@ -594,6 +601,53 @@ button.small {
 
 .order-table tbody tr:hover {
   background: var(--bg);
+}
+
+/* Columna de "agarrar y arrastrar" (⠿) al principio de cada fila de
+   Pedidos — pedidos y separadores comparten esta celda. Reusa
+   .reorder-handle/.reorder-item.dragging (mismo lenguaje visual que el
+   popup "Ordenar categorías" de Catálogo), pero acá el draggable es la <tr>
+   entera en vez de un <li>. */
+.order-th-handle,
+.order-drag-cell {
+  width: 28px;
+  text-align: center;
+  padding-left: 8px;
+  padding-right: 4px;
+}
+
+.order-table tr.dragging {
+  position: relative;
+  z-index: 5;
+  box-shadow: var(--shadow-lg);
+  background: var(--primary-soft);
+}
+
+.order-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.order-table th.sortable:hover {
+  color: var(--text);
+}
+
+.separator-row td {
+  background: var(--bg);
+}
+
+.separator-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: normal;
+}
+
+.separator-cell input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 0.85rem;
 }
 
 /* Pestañas adentro del modal de "⚙ Configuración" (Pedidos/Delivery/Cuenta)
