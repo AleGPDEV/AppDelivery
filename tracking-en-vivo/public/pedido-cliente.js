@@ -38,6 +38,7 @@ const checkoutMapEl = document.getElementById('checkout-map');
 const checkoutCustomFieldsEl = document.getElementById('checkout-custom-fields');
 const checkoutSubmitBtn = document.getElementById('checkout-submit-btn');
 const checkoutStatusEl = document.getElementById('checkout-status');
+const checkoutTrackLinkEl = document.getElementById('checkout-track-link');
 
 const socket = io();
 
@@ -483,6 +484,7 @@ cartCheckoutBtn.addEventListener('click', () => {
   cartOverlay.style.display = 'none';
   checkoutFormEl.style.display = '';
   checkoutConfirmationEl.style.display = 'none';
+  checkoutTrackLinkEl.style.display = 'none';
   checkoutStatusEl.textContent = '';
   checkoutStatusEl.className = 'status';
   checkoutOverlay.style.display = 'flex';
@@ -573,6 +575,10 @@ checkoutSubmitBtn.addEventListener('click', async () => {
     checkoutFormEl.style.display = 'none';
     checkoutConfirmationEl.style.display = '';
     checkoutConfirmationMsgEl.textContent = `Tu pedido #${res.orderNumber} fue enviado. En breve nos contactamos para coordinar la entrega.`;
+    if (res.id) {
+      checkoutTrackLinkEl.href = `/seguimiento.html?id=${res.id}`;
+      checkoutTrackLinkEl.style.display = 'inline-block';
+    }
   });
 });
 

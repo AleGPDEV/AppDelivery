@@ -453,6 +453,14 @@ async function mount(root) {
       tdActions.appendChild(itemsBtn);
     }
 
+    const trackBtn = document.createElement('button');
+    trackBtn.type = 'button';
+    trackBtn.className = 'small';
+    trackBtn.textContent = '📍';
+    trackBtn.title = 'Mandar link de seguimiento en vivo al cliente';
+    trackBtn.addEventListener('click', () => sendTrackingLink(o));
+    tdActions.appendChild(trackBtn);
+
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'small';
@@ -570,6 +578,30 @@ async function mount(root) {
     if (currentSort) return;
     socket.emit('separator:add', { id: crypto.randomUUID(), text: '' });
   });
+
+  // Números uruguayos: 09X XXX XXX (9 dígitos, arranca en 0) → +598 sin el 0,
+  // para armar un link de WhatsApp directo -- mismo criterio que driver.js.
+  function whatsappLink(phone) {
+    const digits = (phone || '').replace(/\D/g, '');
+    if (!digits) return null;
+    const intl = digits.startsWith('598') ? digits : (digits.startsWith('0') && digits.length === 9) ? `598${digits.slice(1)}` : `598${digits}`;
+    return `https://wa.me/${intl}`;
+  }
+
+  // Con teléfono cargado, abre WhatsApp con el link ya escrito (el admin solo
+  // tiene que tocar "Enviar"); sin teléfono, copia el link al portapapeles
+  // para que el admin lo pegue donde le haya llegado el pedido (llamada,
+  // Instagram, etc.).
+  function sendTrackingLink(o) {
+    const link = `${location.origin}/seguimiento.html?id=${o.id}`;
+    const wa = whatsappLink(o.phone);
+    if (wa) {
+      const text = `Hola${o.name ? ` ${o.name}` : ''}! Así podés seguir tu pedido en vivo: ${link}`;
+      window.open(`${wa}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(link);
+    }
+  }
 
   function openItemsModal(o) {
     itemsListEl.innerHTML = '';

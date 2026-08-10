@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seguimiento de tu pedido</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
+<script src="branding.js"></script>
+</head>
+<body class="role-cliente">
+  <header class="wide hero">
+    <button id="theme-toggle-btn" class="tab-btn" type="button"></button>
+    <div class="hero-content">
+      <img data-branding="logo" src="" alt="" class="brand-logo brand-logo-hero" style="display:none;">
+      <span class="hero-eyebrow">📍 Seguimiento</span>
+      <h1 data-branding="store-name">Sushi Meshi Pando</h1>
+    </div>
+  </header>
+
+  <main class="wide">
+    <div id="track-card" class="panel track-card">
+      <p id="track-order-number" class="track-order-number" style="display:none;"></p>
+      <h2 id="track-status-title" class="track-status-title">Buscando tu pedido...</h2>
+      <p id="track-status-msg" class="track-status-msg"></p>
+    </div>
+
+    <div id="track-map-wrap" class="track-map-wrap" style="display:none;">
+      <div id="track-map" class="track-map"></div>
+      <p id="track-map-hint" class="track-map-hint" style="display:none;"></p>
+    </div>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="seguimiento.js"></script>
+</body>
+</html>

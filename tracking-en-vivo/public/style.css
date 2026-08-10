@@ -1658,3 +1658,49 @@ header.hero > #theme-toggle-btn:hover {
   background: rgba(74, 222, 149, 0.18);
   color: #6EE7AE;
 }
+
+/* Seguimiento en vivo (seguimiento.html) */
+.track-card {
+  text-align: center;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.track-order-number {
+  color: var(--muted);
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.track-status-title {
+  margin: 0 0 8px;
+  font-size: 1.3rem;
+}
+
+.track-status-msg {
+  color: var(--muted);
+  margin: 0;
+}
+
+.track-map-wrap {
+  max-width: 720px;
+  margin: 20px auto 0;
+}
+
+.track-map {
+  width: 100%;
+  height: 360px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.track-map-hint {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 10px 0 0;
+}

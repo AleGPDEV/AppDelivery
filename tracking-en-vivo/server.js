@@ -475,7 +475,38 @@ function removeOrder(id) {
   if (!orders.has(id)) return;
   orders.delete(id);
   persistOrderDelete(id);
+  broadcastOrderRemove(id);
+}
+
+// Lo mínimo que puede ver quien tenga el link de seguimiento de ESTE pedido
+// puntual (ver socket.on('tracking:subscribe')) -- nunca el teléfono/nombre
+// del cliente ni nada de ningún otro pedido. El link en sí es la única
+// "contraseña" (un UUID no adivinable), así que server-side solo entra a la
+// room `track:<id>` quien ya conoce ese id.
+function trackingSnapshot(id, o) {
+  return {
+    id,
+    orderNumber: o.orderNumber || null,
+    status: o.status,
+    pickup: o.lat == null,
+    label: o.label || null,
+    assigned: !!o.assignedTo,
+  };
+}
+
+// Todo cambio de un pedido (order:add/assign/edit/delivered/reorder, fin de
+// día) pasa por acá en vez de un `io.emit('order:update', ...)` suelto, para
+// que quien esté siguiendo ESE pedido puntual (`track:<id>`, ver
+// tracking:subscribe) se entere también, sin tener que acordarse de agregar
+// el emit scoped a mano en cada handler nuevo que toque un pedido.
+function broadcastOrderUpdate(id, o) {
+  io.emit('order:update', { id, ...o });
+  io.to(`track:${id}`).emit('tracking:order', trackingSnapshot(id, o));
+}
+
+function broadcastOrderRemove(id) {
   io.emit('order:remove', { id });
+  io.to(`track:${id}`).emit('tracking:removed', { id });
 }
 
 async function loadOrders() {
@@ -661,7 +692,7 @@ app.post('/api/business-day/end', requireAuth, async (req, res) => {
       if (isCashPayment(o.paymentMethod)) cashFromOrders += o.amount;
     }
     persistOrder(id, o);
-    io.emit('order:update', { id, ...o });
+    broadcastOrderUpdate(id, o);
   });
 
   // Proveedores pagados en efectivo salen de la misma caja física — se restan
@@ -1008,7 +1039,7 @@ app.post('/api/admin/reset-today', requireAuth, async (req, res) => {
   if (allOrderIds.length > 0) {
     const { error } = await supabase.from('orders').delete().not('id', 'is', null);
     if (error) console.error('Error borrando pedidos en Supabase:', error.message);
-    allOrderIds.forEach((id) => io.emit('order:remove', { id }));
+    allOrderIds.forEach((id) => broadcastOrderRemove(id));
   }
 
   const { error: daysError } = await supabase.from('business_days').delete().not('id', 'is', null);
@@ -1051,6 +1082,14 @@ io.on('connection', (socket) => {
     const entry = { name: (name || id).slice(0, 40), lat, lng, updatedAt: Date.now() };
     drivers.set(id, entry);
     io.emit('driver:update', { id, ...entry, color: colorForDriver(id) });
+    // A quien esté siguiendo un pedido puntual (`track:<id>`) solo le llega la
+    // posición del delivery de ESE pedido -- nunca el driver:update completo
+    // de arriba, que trae a todos los deliverys conectados.
+    orders.forEach((o, orderId) => {
+      if (o.assignedTo === id && o.status !== 'entregado' && !o.archivedAt) {
+        io.to(`track:${orderId}`).emit('tracking:driver', { lat, lng, name: entry.name });
+      }
+    });
   });
 
   socket.on('driver:stop', ({ id }) => {
@@ -1115,7 +1154,7 @@ io.on('connection', (socket) => {
     };
     orders.set(id, entry);
     persistOrder(id, entry);
-    io.emit('order:update', { id, ...entry });
+    broadcastOrderUpdate(id, entry);
   });
 
   // Assigning/unassigning auto-moves the status between "en preparación" and
@@ -1129,7 +1168,7 @@ io.on('connection', (socket) => {
     if (o.status !== 'entregado') o.status = driverId ? 'en_camino' : 'pending';
     o.updatedAt = Date.now();
     persistOrder(id, o);
-    io.emit('order:update', { id, ...o });
+    broadcastOrderUpdate(id, o);
   });
 
   // El admin edita un pedido — desde un dropdown suelto en la tabla (solo
@@ -1152,7 +1191,7 @@ io.on('connection', (socket) => {
     if (fields.custom && typeof fields.custom === 'object') o.custom = { ...o.custom, ...sanitizeCustom(fields.custom) };
     o.updatedAt = Date.now();
     persistOrder(id, o);
-    io.emit('order:update', { id, ...o });
+    broadcastOrderUpdate(id, o);
   });
 
   // Marking a pedido delivered (driver.html, no admin session) does NOT
@@ -1168,7 +1207,7 @@ io.on('connection', (socket) => {
     if (paymentMethod) o.paymentMethod = paymentMethod;
     o.updatedAt = Date.now();
     persistOrder(id, o);
-    io.emit('order:update', { id, ...o });
+    broadcastOrderUpdate(id, o);
   });
   socket.on('order:remove', ({ id }) => {
     if (!socket.data.isAdmin) return;
@@ -1188,7 +1227,7 @@ io.on('connection', (socket) => {
         if (o && o.sortOrder !== index) {
           o.sortOrder = index;
           persistOrder(id, o);
-          io.emit('order:update', { id, ...o });
+          broadcastOrderUpdate(id, o);
         }
       } else if (type === 'separator') {
         const s = separators.get(id);
@@ -1242,7 +1281,7 @@ io.on('connection', (socket) => {
         o.reconciledAt = now;
         o.updatedAt = now;
         persistOrder(id, o);
-        io.emit('order:update', { id, ...o });
+        broadcastOrderUpdate(id, o);
       }
     });
   });
@@ -1503,9 +1542,30 @@ io.on('connection', (socket) => {
     };
     orders.set(id, entry);
     persistOrder(id, entry);
-    io.emit('order:update', { id, ...entry });
+    broadcastOrderUpdate(id, entry);
     webOrderCooldown.set(socket.id, Date.now());
-    ack({ ok: true, orderNumber: entry.orderNumber, seq });
+    ack({ ok: true, id, orderNumber: entry.orderNumber, seq });
+  });
+
+  // Seguimiento en vivo de UN pedido puntual (link público, ver
+  // seguimiento.html/seguimiento.js) -- socket sin socket.data.isAdmin,
+  // igual que order:web-add. El id del pedido es la única "contraseña": no
+  // hay otra forma de encontrarlo (no se lista, no se puede adivinar al ser
+  // un UUID), así que a quien lo tenga se le entra a la room `track:<id>` y
+  // de ahí en más solo recibe lo que pasa CON ESE pedido (broadcastOrderUpdate
+  // más abajo) y la posición del delivery asignado (ver driver:update) --
+  // nunca el resto de pedidos/deliverys del día, a diferencia de
+  // driver.html/pedido-cliente.html (ver 3.3 de DOCUMENTACION.md).
+  socket.on('tracking:subscribe', ({ orderId }) => {
+    if (!orderId) return;
+    const o = orders.get(orderId);
+    if (!o) { socket.emit('tracking:error', { error: 'No encontramos este pedido.' }); return; }
+    socket.join(`track:${orderId}`);
+    socket.emit('tracking:order', trackingSnapshot(orderId, o));
+    if (o.assignedTo) {
+      const d = drivers.get(o.assignedTo);
+      if (d) socket.emit('tracking:driver', { lat: d.lat, lng: d.lng, name: d.name });
+    }
   });
 });
 
