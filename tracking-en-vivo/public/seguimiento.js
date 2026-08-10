@@ -73,30 +73,6 @@ if (!orderId) {
   showError('Falta el pedido', 'El link no es válido -- revisá que lo hayas copiado completo.');
 } else {
   let mapApi = null;
-  async function getMap() {
-    if (mapApi) return mapApi;
-    const maps = await loadGoogleMaps();
-    const map = new maps.Map(document.getElementById('track-map'), {
-      center: { lat: -34.9011, lng: -56.1645 },
-      zoom: 14,
-      mapTypeControl: false,
-      streetViewControl: false,
-    });
-    // El contenedor está oculto (display:none) hasta un instante antes de
-    // crear el mapa (recién se muestra cuando llega el primer tracking:order
-    // que no es pickup) -- si Maps mide el tamaño del contenedor en ese mismo
-    // instante, a veces le agarra las dimensiones viejas (0x0) y los tiles
-    // quedan mal calculados/desalineados. Un resize en el siguiente frame
-    // (cuando el layout ya se acomodó) lo corrige -- mismo fix que ya usa
-    // pedido-cliente.js para el mapa del checkout.
-    await new Promise((resolve) => requestAnimationFrame(() => {
-      maps.event.trigger(map, 'resize');
-      map.setCenter({ lat: -34.9011, lng: -56.1645 });
-      resolve();
-    }));
-    mapApi = { maps, map, driverMarker: null, destMarker: null };
-    return mapApi;
-  }
 
   function fitBoundsIfNeeded(api) {
     const points = [];
@@ -107,6 +83,39 @@ if (!orderId) {
     const bounds = new api.maps.LatLngBounds();
     points.forEach((p) => bounds.extend(p));
     api.map.fitBounds(bounds, 60);
+  }
+
+  async function getMap() {
+    if (mapApi) return mapApi;
+    const maps = await loadGoogleMaps();
+    const mapEl = document.getElementById('track-map');
+    const map = new maps.Map(mapEl, {
+      center: { lat: -34.9011, lng: -56.1645 },
+      zoom: 14,
+      mapTypeControl: false,
+      streetViewControl: false,
+    });
+    mapApi = { maps, map, driverMarker: null, destMarker: null };
+    // El contenedor está oculto (display:none) hasta un instante antes de
+    // crear el mapa -- si Maps mide el tamaño en ese mismo instante (o el
+    // layout sigue moviéndose un poco más, visto en vivo en Chrome de
+    // escritorio además de navegadores integrados), los tiles quedan mal
+    // calculados/desalineados y un solo resize "al toque" no siempre
+    // alcanza. Un ResizeObserver es más robusto que adivinar un momento
+    // puntual: dispara el resize de Maps cada vez que el contenedor
+    // realmente cambia de tamaño, las veces que haga falta -- mismo fix que
+    // ya usa pedido-cliente.js para el mapa del checkout, pero con un
+    // disparador más confiable que un solo requestAnimationFrame.
+    let lastSize = '';
+    new ResizeObserver(() => {
+      if (mapEl.clientWidth === 0) return;
+      const size = `${mapEl.clientWidth}x${mapEl.clientHeight}`;
+      if (size === lastSize) return;
+      lastSize = size;
+      maps.event.trigger(map, 'resize');
+      fitBoundsIfNeeded(mapApi);
+    }).observe(mapEl);
+    return mapApi;
   }
 
   async function showDestination(lat, lng) {
