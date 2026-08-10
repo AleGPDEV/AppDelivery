@@ -846,12 +846,19 @@ button.small {
   margin-top: 10px;
 }
 
+/* Mismo lenguaje visual que .category-card (foto a pantalla completa,
+   degradé oscuro abajo, nombre en blanco sobre la foto) -- a pedido del
+   usuario, para que las tarjetas de producto se vean igual que las de
+   categoría en vez de imagen arriba + texto abajo en un panel con borde.
+   El precio se agrega al lado del nombre, sobre la misma franja; la
+   descripción (si hay) y el contador +/- quedan fuera de la foto, debajo,
+   ya que no entran en ese mismo lenguaje de "una sola línea de título". */
 .product-card {
   position: relative;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 14px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -864,27 +871,68 @@ button.small {
   box-shadow: var(--shadow-lg);
 }
 
-.product-card img,
-.product-card .no-image {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  height: auto;
-  object-fit: cover;
+.product-card-media {
+  position: relative;
+  height: 150px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--bg), var(--panel));
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--primary-soft), var(--panel));
 }
 
-.product-card .no-image {
+.product-card-media img,
+.product-card-media .no-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.product-card-media .no-image {
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--muted);
   font-size: 2.2rem;
+  background: linear-gradient(135deg, var(--bg), var(--panel));
 }
 
-.product-card .product-name {
-  font-size: 1.05rem;
+.product-card-media-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.15) 55%, transparent 100%);
+}
+
+.product-card-media-info {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.product-card-media-info .product-name {
+  color: #fff;
+  font-weight: 800;
+  font-size: 1rem;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-card-media-info .product-price {
+  flex-shrink: 0;
+  color: #fff;
   font-weight: 700;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
 }
 
 .product-card .product-description {
@@ -1092,46 +1140,33 @@ header.hero > #theme-toggle-btn:hover {
 /* Catálogo del admin (catalogo.js) -- reusa .category-grid/.category-card/
    .catalog-grid/.product-card tal cual las ve el cliente, y les suma estos
    controles de admin encima: un ✏️ circular por tarjeta, una insignia para
-   lo que está oculto, y una "tarjeta" de borde punteado para crear. */
+   lo que está oculto, y una "tarjeta" de borde punteado para crear.
+   .product-card-edit-btn vive adentro de .product-card-media (no de todo
+   el <article>), así queda anclado a la foto igual que el de categoría --
+   mismo estilo para los dos ahora que ambos flotan sobre una foto oscura. */
 .category-card-edit-btn,
 .product-card-edit-btn {
   position: absolute;
+  top: 8px;
+  right: 8px;
   z-index: 2;
   width: 32px;
   height: 32px;
   padding: 0;
+  border: none;
   border-radius: 50%;
   font-size: 0.95rem;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-}
-
-.category-card-edit-btn {
-  top: 8px;
-  right: 8px;
-  border: none;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
 }
 
-.category-card-edit-btn:hover {
-  background: rgba(0, 0, 0, 0.65);
-}
-
-.product-card-edit-btn {
-  top: 22px;
-  right: 22px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text);
-  box-shadow: var(--shadow);
-}
-
+.category-card-edit-btn:hover,
 .product-card-edit-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+  background: rgba(0, 0, 0, 0.65);
 }
 
 .hidden-badge {

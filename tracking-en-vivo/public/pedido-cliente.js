@@ -178,22 +178,40 @@ function buildProductCard(id, p) {
   const card = document.createElement('div');
   card.className = 'product-card';
 
+  // Foto a pantalla completa con degradé + nombre/precio encima, mismo
+  // lenguaje que .category-card -- ver comentario en style.css.
+  const media = document.createElement('div');
+  media.className = 'product-card-media';
+
   if (p.imageUrl) {
     const img = document.createElement('img');
     img.src = p.imageUrl;
     img.alt = p.name;
-    card.appendChild(img);
+    media.appendChild(img);
   } else {
     const placeholder = document.createElement('div');
     placeholder.className = 'no-image';
     placeholder.textContent = '🍣';
-    card.appendChild(placeholder);
+    media.appendChild(placeholder);
   }
 
+  const overlay = document.createElement('div');
+  overlay.className = 'product-card-media-overlay';
+  media.appendChild(overlay);
+
+  const info = document.createElement('div');
+  info.className = 'product-card-media-info';
   const name = document.createElement('div');
   name.className = 'product-name';
   name.textContent = p.name;
-  card.appendChild(name);
+  info.appendChild(name);
+  const price = document.createElement('div');
+  price.className = 'product-price';
+  price.textContent = `$${Number(p.price || 0).toFixed(2)}`;
+  info.appendChild(price);
+  media.appendChild(info);
+
+  card.appendChild(media);
 
   if (p.description) {
     const desc = document.createElement('div');
@@ -201,11 +219,6 @@ function buildProductCard(id, p) {
     desc.textContent = p.description;
     card.appendChild(desc);
   }
-
-  const price = document.createElement('div');
-  price.className = 'product-price';
-  price.textContent = `$${Number(p.price || 0).toFixed(2)}`;
-  card.appendChild(price);
 
   const stepper = document.createElement('div');
   stepper.className = 'qty-stepper';
