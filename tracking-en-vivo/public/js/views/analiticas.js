@@ -524,7 +524,6 @@ function unmount() {
 
 Router.register('/analiticas.html', {
   title: 'Analíticas — Deliverys en vivo',
-  subtitle: 'Cargá pedidos, asignalos, y mirá cómo se mueven tus deliverys en el mapa.',
   wide: false,
   template,
   mount,

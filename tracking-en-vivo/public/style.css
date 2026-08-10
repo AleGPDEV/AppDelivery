@@ -395,13 +395,6 @@ button.small {
   top: 16px;
 }
 
-/* Solo Pedidos tiene el botón de minimizar (dashboard.js nunca le agrega
-   esta clase) — oculta el <div id="map"> pero no lo destruye, así el mapa
-   de Google sigue vivo y no hay que recargarlo al volver a mostrarlo. */
-.dashboard-map-panel.map-collapsed #map {
-  display: none;
-}
-
 .dashboard-drivers-panel {
   flex: 1 1 58%;
   min-width: 320px;
@@ -414,11 +407,34 @@ button.small {
   margin-top: 14px;
 }
 
-/* Pedidos reusa el mismo layout mapa+panel que Dashboard (.dashboard-layout/
-   .dashboard-map-panel), pero el panel derecho es una tabla, no tarjetas. */
-.pedidos-orders-panel {
-  flex: 1 1 58%;
-  min-width: 320px;
+/* Pedidos: mapa + "Deliverys activos y pedidos asignados" + "Desglose de
+   dinero" (todo lo que antes vivía solo en la pestaña Dashboard) como
+   secciones apiladas de ancho completo arriba de la tabla, cada una
+   minimizable por separado (ver wireCollapsible en pedidos.js) en vez del
+   layout de dos columnas de Dashboard — así la tabla de pedidos tiene toda
+   la pantalla para ella. */
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.collapsible-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.collapsible-panel.collapsed .collapsible-body {
+  display: none;
+}
+
+#assigned-cards,
+#cash-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
 }
 
 @media (max-width: 900px) {

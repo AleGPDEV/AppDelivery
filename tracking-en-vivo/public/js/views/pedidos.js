@@ -6,41 +6,66 @@ import { createMapPanel } from '/js/map-panel.js';
 import { initReorderDrag } from '/js/reorder-drag.js';
 import { template as newOrderFormTemplate, mount as mountNewOrderForm, unmount as unmountNewOrderForm } from '/js/views/nuevo-pedido.js';
 
-// Mapa a la izquierda (mismo componente que Dashboard: deliverys, rutas,
-// asignar desde el popup) + lista de pedidos a la derecha, arrastrable a
-// mano con un orden personalizado y con "separadores" (barreras con texto)
-// que se pueden intercalar entre pedidos. El orden se guarda para todos
-// (persistido en Supabase vía order:reorder/separator:*), no es una
-// preferencia local del que mira la pantalla.
+// Antes el mapa vivía al costado de la tabla (dos columnas); a pedido del
+// usuario, para tener mejor panorámica de la lista de pedidos, el mapa (y
+// todo lo que antes vivía en la pestaña "Deliverys y mapa": deliverys
+// activos + sus pedidos asignados, y el desglose de dinero por delivery)
+// pasa a ser una serie de secciones apilables de ancho completo, cada una
+// minimizable, arriba de la tabla — que ahora tiene toda la pantalla para
+// ella. Arrastrar pedidos con un orden personalizado y "separadores"
+// (barreras con texto) que se pueden intercalar entre pedidos sigue igual:
+// el orden se guarda para todos (persistido en Supabase vía
+// order:reorder/separator:*), no es una preferencia local de quien mira.
 const template = `
 <main class="wide">
-  <div class="dashboard-layout">
-    <section class="panel dashboard-map-panel" id="pedidos-map-panel">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-        <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
-        <button id="map-toggle-btn" type="button" class="small" title="Minimizar mapa">▾</button>
+  <section class="panel collapsible-panel" id="pedidos-map-panel">
+    <div class="collapsible-header">
+      <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
+      <button id="map-toggle-btn" type="button" class="small" title="Minimizar mapa">▾</button>
+    </div>
+    <div id="map" class="collapsible-body"></div>
+  </section>
+
+  <section class="panel collapsible-panel" id="pedidos-assigned-panel">
+    <div class="collapsible-header">
+      <h3>Deliverys activos y pedidos asignados</h3>
+      <button id="assigned-toggle-btn" type="button" class="small" title="Minimizar">▾</button>
+    </div>
+    <div class="collapsible-body">
+      <p id="assigned-empty" class="hint" hidden>Todavía no hay deliverys conectados.</p>
+      <div id="assigned-cards"></div>
+    </div>
+  </section>
+
+  <section class="panel collapsible-panel" id="pedidos-cash-panel">
+    <div class="collapsible-header">
+      <h3>Desglose de dinero</h3>
+      <button id="cash-toggle-btn" type="button" class="small" title="Minimizar">▾</button>
+    </div>
+    <div class="collapsible-body">
+      <p id="cash-empty" class="hint" hidden>Todavía no hay entregas registradas.</p>
+      <div id="cash-cards"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <h2 style="margin:0;">Registro de pedidos</h2>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="add-separator-btn" type="button" class="small">+ Agregar separador</button>
+        <button id="new-order-open-btn" type="button" class="primary small">+ Nuevo pedido</button>
       </div>
-      <div id="map"></div>
-    </section>
-    <section class="panel pedidos-orders-panel">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-        <h2 style="margin:0;">Registro de pedidos</h2>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="add-separator-btn" type="button" class="small">+ Agregar separador</button>
-          <button id="new-order-open-btn" type="button" class="primary small">+ Nuevo pedido</button>
-        </div>
-      </div>
-      <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
-      <div class="table-scroll">
-        <table class="order-table">
-          <thead>
-            <tr id="order-thead-row"></tr>
-          </thead>
-          <tbody id="order-tbody"></tbody>
-        </table>
-      </div>
-    </section>
-  </div>
+    </div>
+    <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
+    <div class="table-scroll">
+      <table class="order-table">
+        <thead>
+          <tr id="order-thead-row"></tr>
+        </thead>
+        <tbody id="order-tbody"></tbody>
+      </table>
+    </div>
+  </section>
 </main>
 
 <div id="new-order-overlay" class="modal-overlay" style="display:none;">
@@ -142,28 +167,35 @@ async function mount(root) {
   const newOrderOverlay = root.querySelector('#new-order-overlay');
   const newOrderCloseBtn = root.querySelector('#new-order-close-btn');
   const newOrderModalBodyEl = root.querySelector('#new-order-modal-body');
-  const mapPanelSectionEl = root.querySelector('#pedidos-map-panel');
-  const mapToggleBtn = root.querySelector('#map-toggle-btn');
+  const assignedCardsEl = root.querySelector('#assigned-cards');
+  const assignedEmptyEl = root.querySelector('#assigned-empty');
+  const cashCardsEl = root.querySelector('#cash-cards');
+  const cashEmptyEl = root.querySelector('#cash-empty');
 
   const mapPanel = await createMapPanel(root.querySelector('#map'), { driverCountEl });
   if (myGeneration !== currentGeneration) { mapPanel.teardown(); return; } // se navegó a otra vista mientras cargaba
 
-  // Mapa minimizable: el mockup original pedía el mapa siempre visible al
-  // lado de la lista, pero en pantallas más chicas (o con muchos pedidos)
-  // conviene poder achicarlo para tener más lugar para la tabla. Solo oculta
-  // el `<div id="map">` (deja el mapa de Google vivo, no lo destruye), así
-  // no hace falta volver a cargarlo al restaurarlo.
-  let mapCollapsed = false;
-  mapToggleBtn.addEventListener('click', () => {
-    mapCollapsed = !mapCollapsed;
-    mapPanelSectionEl.classList.toggle('map-collapsed', mapCollapsed);
-    mapToggleBtn.textContent = mapCollapsed ? '▸' : '▾';
-    mapToggleBtn.title = mapCollapsed ? 'Mostrar mapa' : 'Minimizar mapa';
-  });
+  // Cada una de las 3 secciones de arriba (mapa, deliverys activos, desglose
+  // de dinero) es minimizable por separado — solo oculta el contenido
+  // (`.collapsible-body`), no lo destruye, así el mapa de Google sigue vivo
+  // y las tarjetas no se pierden al volver a abrir.
+  function wireCollapsible(sectionEl, toggleBtnEl, label) {
+    let collapsed = false;
+    toggleBtnEl.addEventListener('click', () => {
+      collapsed = !collapsed;
+      sectionEl.classList.toggle('collapsed', collapsed);
+      toggleBtnEl.textContent = collapsed ? '▸' : '▾';
+      toggleBtnEl.title = collapsed ? `Mostrar ${label}` : `Minimizar ${label}`;
+    });
+  }
+  wireCollapsible(root.querySelector('#pedidos-map-panel'), root.querySelector('#map-toggle-btn'), 'mapa');
+  wireCollapsible(root.querySelector('#pedidos-assigned-panel'), root.querySelector('#assigned-toggle-btn'), 'deliverys activos y pedidos asignados');
+  wireCollapsible(root.querySelector('#pedidos-cash-panel'), root.querySelector('#cash-toggle-btn'), 'desglose de dinero');
 
   const socket = Store.socket;
   const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
   let formConfig = Store.getFormConfig();
+  if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
   let editingOrderId = null;
 
   // null = orden personalizado (persistido, arrastrable, con separadores
@@ -646,10 +678,239 @@ async function mount(root) {
     recomputeRouteForDriver(driverId);
   }
 
+  // ---------- Deliverys activos y pedidos asignados / Desglose de dinero ----------
+  // Mismo contenido que antes vivía solo en la pestaña "Deliverys y mapa"
+  // (rendición por delivery), portado tal cual acá pero partido en dos
+  // secciones: una con el nombre + pedidos sin entregar de cada delivery, y
+  // otra con su desglose de plata (cambio inicial, por método de pago,
+  // gastos asignados, total a entregar, cerrar rendición). Reusa el
+  // `driverLabel` que ya existe más arriba (misma instancia que usan los
+  // <select> "Delivery asignado" de la tabla) y reacciona a cambios de
+  // delivery/pedido/ruta a través de `mapPanel.onChange(...)` en vez de
+  // abrir una segunda tanda de suscripciones a Store para lo mismo.
+  const assignedCards = new Map(); // driverId -> refs
+  const cashCards = new Map(); // driverId -> refs
+
+  function sumBy(list, predicate) {
+    const filtered = list.filter(predicate);
+    return { count: filtered.length, total: filtered.reduce((sum, e) => sum + (e.amount || 0), 0) };
+  }
+  function fmtCell({ count, total }) {
+    return `${count} — $${total.toFixed(2)}`;
+  }
+  function pendingDeliveries(driverId) {
+    return Array.from(Store.getOrders().values()).filter((o) => o.assignedTo === driverId && o.status === 'entregado' && !o.reconciledAt);
+  }
+  function assignedActiveOrders(driverId) {
+    return Array.from(Store.getOrders().values()).filter((o) => o.assignedTo === driverId && o.status !== 'entregado' && !o.archivedAt);
+  }
+  function cashExpensesForDriver(driverId) {
+    return Array.from(Store.getExpenses().values()).filter((e) => e.driverId === driverId).reduce((sum, e) => sum + (e.amount || 0), 0);
+  }
+
+  function ensureAssignedCard(driverId) {
+    const existing = assignedCards.get(driverId);
+    if (existing) return existing;
+    const card = document.createElement('div');
+    card.className = 'panel driver-card';
+    const header = document.createElement('div');
+    header.className = 'driver-card-header';
+    const nameEl = document.createElement('strong');
+    header.appendChild(nameEl);
+    card.appendChild(header);
+    const ordersSection = document.createElement('div');
+    ordersSection.className = 'driver-card-orders';
+    const ordersList = document.createElement('ul');
+    ordersSection.appendChild(ordersList);
+    card.appendChild(ordersSection);
+    assignedCardsEl.appendChild(card);
+    const refs = { card, nameEl, ordersList };
+    assignedCards.set(driverId, refs);
+    return refs;
+  }
+
+  function updateAssignedCard(driverId) {
+    const refs = ensureAssignedCard(driverId);
+    const pending = assignedActiveOrders(driverId);
+    refs.nameEl.textContent = `${driverLabel(driverId)} (${pending.length} sin entregar)`;
+    refs.ordersList.innerHTML = '';
+    if (pending.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'Ningún pedido asignado todavía.';
+      refs.ordersList.appendChild(li);
+    } else {
+      pending.forEach((o) => {
+        const li = document.createElement('li');
+        li.textContent = `Pedido #${o.orderNumber || o.seq}`;
+        if (o.lat != null) {
+          li.classList.add('clickable');
+          li.title = 'Ver en el mapa';
+          li.addEventListener('click', () => mapPanel.focusOrder(o.id));
+        }
+        refs.ordersList.appendChild(li);
+      });
+    }
+  }
+
+  function statCell(container, labelText) {
+    const wrap = document.createElement('div');
+    wrap.className = 'driver-stat';
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    wrap.appendChild(label);
+    container.appendChild(wrap);
+    return wrap;
+  }
+
+  function buildCashStatCells(driverId, refs) {
+    refs.statsEl.innerHTML = '';
+    refs.methodCells.clear();
+
+    const cambioWrap = statCell(refs.statsEl, 'Cambio inicial');
+    const cambioInput = document.createElement('input');
+    cambioInput.type = 'text';
+    cambioInput.placeholder = '$ 0,00';
+    cambioInput.addEventListener('input', () => {
+      const amount = Geo.parseAmount(cambioInput.value) || 0;
+      socket.emit('driver:cash-start', { driverId, amount });
+      updateCashCard(driverId);
+    });
+    cambioWrap.appendChild(cambioInput);
+    MoneyCounter.attach(cambioInput);
+    refs.cambioInput = cambioInput;
+
+    formConfig.paymentMethods.forEach((m) => {
+      const wrap = statCell(refs.statsEl, m.name);
+      const valueEl = document.createElement('span');
+      valueEl.className = 'value';
+      wrap.appendChild(valueEl);
+      refs.methodCells.set(m.id, valueEl);
+    });
+
+    const ventasWrap = statCell(refs.statsEl, 'Ventas totales');
+    const ventasValueEl = document.createElement('span');
+    ventasValueEl.className = 'value';
+    ventasWrap.appendChild(ventasValueEl);
+    refs.ventasValueEl = ventasValueEl;
+
+    const gastosWrap = statCell(refs.statsEl, 'Gastos asignados');
+    const gastosValueEl = document.createElement('span');
+    gastosValueEl.className = 'value';
+    gastosWrap.appendChild(gastosValueEl);
+    refs.gastosValueEl = gastosValueEl;
+
+    const totalWrap = statCell(refs.statsEl, 'Total a entregar');
+    const totalValueEl = document.createElement('strong');
+    totalWrap.appendChild(totalValueEl);
+    refs.totalValueEl = totalValueEl;
+  }
+
+  function ensureCashCard(driverId) {
+    const existing = cashCards.get(driverId);
+    if (existing) return existing;
+    const card = document.createElement('div');
+    card.className = 'panel driver-card';
+    const header = document.createElement('div');
+    header.className = 'driver-card-header';
+    const nameEl = document.createElement('strong');
+    header.appendChild(nameEl);
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'danger small';
+    clearBtn.textContent = 'Cerrar rendición';
+    clearBtn.addEventListener('click', () => {
+      socket.emit('driver:clear-log', { driverId });
+      socket.emit('driver:cash-start', { driverId, amount: 0 });
+      updateCashCard(driverId);
+    });
+    header.appendChild(clearBtn);
+    card.appendChild(header);
+    const statsEl = document.createElement('div');
+    statsEl.className = 'driver-card-stats';
+    card.appendChild(statsEl);
+    cashCardsEl.appendChild(card);
+    const refs = { card, nameEl, statsEl, methodCells: new Map() };
+    cashCards.set(driverId, refs);
+    buildCashStatCells(driverId, refs);
+    return refs;
+  }
+
+  function updateCashCard(driverId) {
+    const refs = ensureCashCard(driverId);
+    const log = pendingDeliveries(driverId);
+    const cashStart = Store.getCashStarts().get(driverId) || 0;
+    const gastos = cashExpensesForDriver(driverId);
+    let cashMethodsTotal = 0;
+
+    refs.nameEl.textContent = `${driverLabel(driverId)} (${log.length} sin rendir)`;
+    let ventasTotal = 0;
+    formConfig.paymentMethods.forEach((m) => {
+      const cell = sumBy(log, (e) => e.paymentMethod === m.name);
+      const el = refs.methodCells.get(m.id);
+      if (el) el.textContent = fmtCell(cell);
+      if (m.isCash) cashMethodsTotal += cell.total;
+      ventasTotal += cell.total;
+    });
+    if (refs.ventasValueEl) refs.ventasValueEl.textContent = `$${ventasTotal.toFixed(2)}`;
+    if (refs.gastosValueEl) refs.gastosValueEl.textContent = gastos > 0 ? `-$${gastos.toFixed(2)}` : '$0.00';
+
+    const debe = cashMethodsTotal + cashStart - gastos;
+    if (refs.totalValueEl) refs.totalValueEl.textContent = `$${debe.toFixed(2)}`;
+    if (refs.cambioInput && document.activeElement !== refs.cambioInput) refs.cambioInput.value = cashStart || '';
+  }
+
+  function renderAssignedAndCashCards() {
+    const assignedDriverIds = new Set(Array.from(Store.getOrders().values()).map((o) => o.assignedTo).filter(Boolean));
+    const driverIds = new Set([...assignedDriverIds, ...Store.getDrivers().keys()]);
+
+    assignedEmptyEl.hidden = driverIds.size > 0;
+    cashEmptyEl.hidden = driverIds.size > 0;
+
+    if (driverIds.size === 0) {
+      assignedCards.forEach((refs) => refs.card.remove());
+      assignedCards.clear();
+      cashCards.forEach((refs) => refs.card.remove());
+      cashCards.clear();
+      return;
+    }
+
+    assignedCards.forEach((refs, driverId) => {
+      if (!driverIds.has(driverId)) { refs.card.remove(); assignedCards.delete(driverId); }
+    });
+    cashCards.forEach((refs, driverId) => {
+      if (!driverIds.has(driverId)) { refs.card.remove(); cashCards.delete(driverId); }
+    });
+
+    driverIds.forEach((driverId) => {
+      const aRefs = ensureAssignedCard(driverId);
+      if (!aRefs.card.isConnected) assignedCardsEl.appendChild(aRefs.card);
+      updateAssignedCard(driverId);
+      const cRefs = ensureCashCard(driverId);
+      if (!cRefs.card.isConnected) cashCardsEl.appendChild(cRefs.card);
+      updateCashCard(driverId);
+    });
+  }
+
+  function rebuildCashCardsForNewFormConfig() {
+    cashCards.forEach((refs, driverId) => buildCashStatCells(driverId, refs));
+    renderAssignedAndCashCards();
+  }
+
+  mapPanel.onChange(renderAssignedAndCashCards);
+
+  const onCashStartsSnapshot = () => renderAssignedAndCashCards();
+  const onDriverCashStart = (e) => {
+    if (cashCards.has(e.detail.driverId)) updateCashCard(e.detail.driverId);
+  };
+  const onExpensesSnapshot = () => renderAssignedAndCashCards();
+
   const onFormConfigSnapshot = (e) => {
     formConfig = e.detail || {};
+    if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
     renderHeader();
     renderOrders();
+    rebuildCashCardsForNewFormConfig();
   };
   const onDriversSnapshot = (e) => {
     (e.detail || []).forEach((d) => knownDriverNames.set(d.id, d.name));
@@ -680,6 +941,9 @@ async function mount(root) {
   Store.on('order:update', onOrderUpdate);
   Store.on('order:remove', onOrderRemove);
   Store.on('separators:snapshot', onSeparatorsSnapshot);
+  Store.on('cash-starts:snapshot', onCashStartsSnapshot);
+  Store.on('driver:cash-start', onDriverCashStart);
+  Store.on('expenses:snapshot', onExpensesSnapshot);
 
   const unsubscribe = () => {
     Store.off('form-config:snapshot', onFormConfigSnapshot);
@@ -690,6 +954,9 @@ async function mount(root) {
     Store.off('order:update', onOrderUpdate);
     Store.off('order:remove', onOrderRemove);
     Store.off('separators:snapshot', onSeparatorsSnapshot);
+    Store.off('cash-starts:snapshot', onCashStartsSnapshot);
+    Store.off('driver:cash-start', onDriverCashStart);
+    Store.off('expenses:snapshot', onExpensesSnapshot);
     // Si se navega a otra pestaña con el modal de "Nuevo pedido" todavía
     // abierto, no dejar sus propias suscripciones a Store colgadas.
     if (newOrderFormMounted) unmountNewOrderForm();
@@ -698,6 +965,7 @@ async function mount(root) {
   active = { mapPanel, unsubscribe, teardownDriverLabel };
   renderHeader();
   renderOrders();
+  renderAssignedAndCashCards();
 }
 
 function unmount() {
@@ -707,7 +975,6 @@ function unmount() {
 
 Router.register('/pedidos.html', {
   title: 'Registro de pedidos — Deliverys en vivo',
-  subtitle: 'Cargá pedidos, asignalos, y mirá cómo se mueven tus deliverys en el mapa.',
   wide: true,
   template,
   mount,

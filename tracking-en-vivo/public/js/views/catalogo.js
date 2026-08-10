@@ -813,7 +813,6 @@ function unmount() {
 
 Router.register('/catalogo.html', {
   title: 'Catálogo — Deliverys en vivo',
-  subtitle: 'Así lo ve el cliente -- tocá una categoría para administrar sus productos.',
   wide: true,
   template,
   mount,

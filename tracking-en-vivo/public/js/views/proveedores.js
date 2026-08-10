@@ -393,7 +393,6 @@ function unmount() {
 
 Router.register('/proveedores.html', {
   title: 'Proveedores — Deliverys en vivo',
-  subtitle: 'Registrá los pagos a proveedores que salen de la caja del negocio.',
   wide: true,
   template,
   mount,

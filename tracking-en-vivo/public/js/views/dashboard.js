@@ -292,7 +292,6 @@ function unmount() {
 
 Router.register('/dashboard.html', {
   title: 'Deliverys y mapa — Deliverys en vivo',
-  subtitle: 'Mirá dónde están tus deliverys y rendí cuentas con cada uno, todo en la misma pantalla.',
   wide: true,
   template,
   mount,
