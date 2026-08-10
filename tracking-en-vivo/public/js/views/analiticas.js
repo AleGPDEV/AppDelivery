@@ -2,7 +2,7 @@ import { Store } from '/js/store.js';
 import { Router } from '/js/router.js';
 
 const template = `
-<main>
+<main class="wide">
   <section class="panel">
     <h2>Día comercial</h2>
     <p id="day-status" class="driver-count">Cargando...</p>
@@ -524,7 +524,7 @@ function unmount() {
 
 Router.register('/analiticas.html', {
   title: 'Analíticas — Deliverys en vivo',
-  wide: false,
+  wide: true,
   template,
   mount,
   unmount,

@@ -753,6 +753,16 @@ button.small {
   animation: fade-in 0.15s ease;
 }
 
+/* El recortador de fotos (catalogo.js) se abre encima de otro modal ya
+   abierto (editar/agregar categoría o producto) -- con el mismo z-index de
+   .modal-overlay para los dos, quién queda arriba dependía de quién
+   apareciera último en el HTML (para categorías por casualidad andaba, para
+   productos no: el recortador quedaba detrás del modal de "Editar
+   producto"). Un z-index propio, más alto, lo saca de esa lotería. */
+#image-crop-overlay {
+  z-index: 1050;
+}
+
 .modal-box {
   position: relative;
   background: var(--panel);
