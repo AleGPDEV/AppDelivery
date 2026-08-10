@@ -395,6 +395,13 @@ button.small {
   top: 16px;
 }
 
+/* Solo Pedidos tiene el botón de minimizar (dashboard.js nunca le agrega
+   esta clase) — oculta el <div id="map"> pero no lo destruye, así el mapa
+   de Google sigue vivo y no hay que recargarlo al volver a mostrarlo. */
+.dashboard-map-panel.map-collapsed #map {
+  display: none;
+}
+
 .dashboard-drivers-panel {
   flex: 1 1 58%;
   min-width: 320px;
@@ -636,16 +643,28 @@ button.small {
   background: var(--bg);
 }
 
-.separator-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* Nota: ".order-table td" (una clase + un tag) le gana en especificidad a
+   ".separator-cell" sola, así que el white-space acá tiene que calzar en un
+   selector igual de específico o más — si no, el "nowrap" de la tabla lo
+   pisa igual. display:flex directo sobre un <td> con colspan tampoco
+   estira de forma confiable en todos los navegadores (quedaba angosto,
+   como si no tomara el ancho de las columnas que abarca); el <div> interno
+   (.separator-cell-inner) con width:100% sí lo hace. */
+.order-table td.separator-cell {
   white-space: normal;
 }
 
-.separator-cell input {
+.separator-cell-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.separator-cell-inner input {
   flex: 1;
   min-width: 0;
+  width: 100%;
   padding: 6px 10px;
   font-size: 0.85rem;
 }

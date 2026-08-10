@@ -15,8 +15,11 @@ import { template as newOrderFormTemplate, mount as mountNewOrderForm, unmount a
 const template = `
 <main class="wide">
   <div class="dashboard-layout">
-    <section class="panel dashboard-map-panel">
-      <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
+    <section class="panel dashboard-map-panel" id="pedidos-map-panel">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
+        <button id="map-toggle-btn" type="button" class="small" title="Minimizar mapa">▾</button>
+      </div>
       <div id="map"></div>
     </section>
     <section class="panel pedidos-orders-panel">
@@ -139,9 +142,24 @@ async function mount(root) {
   const newOrderOverlay = root.querySelector('#new-order-overlay');
   const newOrderCloseBtn = root.querySelector('#new-order-close-btn');
   const newOrderModalBodyEl = root.querySelector('#new-order-modal-body');
+  const mapPanelSectionEl = root.querySelector('#pedidos-map-panel');
+  const mapToggleBtn = root.querySelector('#map-toggle-btn');
 
   const mapPanel = await createMapPanel(root.querySelector('#map'), { driverCountEl });
   if (myGeneration !== currentGeneration) { mapPanel.teardown(); return; } // se navegó a otra vista mientras cargaba
+
+  // Mapa minimizable: el mockup original pedía el mapa siempre visible al
+  // lado de la lista, pero en pantallas más chicas (o con muchos pedidos)
+  // conviene poder achicarlo para tener más lugar para la tabla. Solo oculta
+  // el `<div id="map">` (deja el mapa de Google vivo, no lo destruye), así
+  // no hace falta volver a cargarlo al restaurarlo.
+  let mapCollapsed = false;
+  mapToggleBtn.addEventListener('click', () => {
+    mapCollapsed = !mapCollapsed;
+    mapPanelSectionEl.classList.toggle('map-collapsed', mapCollapsed);
+    mapToggleBtn.textContent = mapCollapsed ? '▸' : '▾';
+    mapToggleBtn.title = mapCollapsed ? 'Mostrar mapa' : 'Minimizar mapa';
+  });
 
   const socket = Store.socket;
   const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
@@ -416,6 +434,13 @@ async function mount(root) {
     td.colSpan = colspanCount;
     td.className = 'separator-cell';
 
+    // `display:flex` directo sobre el <td> con colspan no estira de forma
+    // confiable en todos los navegadores (el input quedaba angosto, como si
+    // el <td> no tomara el ancho de las columnas que abarca) — un <div>
+    // interno con width:100% sí lo hace de forma consistente.
+    const inner = document.createElement('div');
+    inner.className = 'separator-cell-inner';
+
     const input = document.createElement('input');
     input.type = 'text';
     input.placeholder = 'Texto del separador (opcional)';
@@ -428,7 +453,7 @@ async function mount(root) {
         socket.emit('separator:edit', { id, text: input.value });
       }, 400);
     });
-    td.appendChild(input);
+    inner.appendChild(input);
 
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
@@ -436,13 +461,28 @@ async function mount(root) {
     delBtn.textContent = '🗑';
     delBtn.title = 'Eliminar separador';
     delBtn.addEventListener('click', () => socket.emit('separator:remove', { id }));
-    td.appendChild(delBtn);
+    inner.appendChild(delBtn);
 
+    td.appendChild(inner);
     tr.appendChild(td);
     return tr;
   }
 
+  // Mientras se está escribiendo en el texto de un separador, cualquier
+  // render disparado por un evento de Store (incluido el eco del propio
+  // `separator:edit` que uno mismo acaba de emitir, ya que el servidor lo
+  // reemite a todos vía `separators:snapshot`) destruye y reconstruye la
+  // fila entera — perdiendo el foco y, con debounce de 400ms, cortando la
+  // escritura en cada pausa. Mismo tipo de bug que ya se evitó en otros
+  // lados (ver driver:update en pedidos/dashboard) — acá se resuelve
+  // saltando el render mientras el input activo sea uno de separador.
+  function isEditingSeparatorText() {
+    const active = document.activeElement;
+    return !!(active && active.tagName === 'INPUT' && active.closest('.separator-cell'));
+  }
+
   function renderOrders() {
+    if (isEditingSeparatorText()) return;
     orderTbodyEl.innerHTML = '';
     itemTypeById.clear();
 
@@ -454,7 +494,7 @@ async function mount(root) {
 
     const fieldColumns = visibleFieldColumns();
     const dragEnabled = !currentSort;
-    const colspanCount = 2 + fieldColumns.length + 3; // ticket+origen + campos + delivery/pago/estado (sin acciones)
+    const colspanCount = columnDefs().length; // toda la fila salvo la columna de arrastrar, igual de larga que un pedido
 
     items.forEach((item) => {
       itemTypeById.set(item.id, item.type);
