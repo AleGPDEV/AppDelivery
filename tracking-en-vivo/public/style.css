@@ -850,9 +850,11 @@ button.small {
    degradé oscuro abajo, nombre en blanco sobre la foto) -- a pedido del
    usuario, para que las tarjetas de producto se vean igual que las de
    categoría en vez de imagen arriba + texto abajo en un panel con borde.
-   El precio se agrega al lado del nombre, sobre la misma franja; la
-   descripción (si hay) y el contador +/- quedan fuera de la foto, debajo,
-   ya que no entran en ese mismo lenguaje de "una sola línea de título". */
+   Nombre, precio y descripción van los tres superpuestos sobre la foto
+   (a pedido explícito) -- la tarjeta es la foto, no le queda nada abajo
+   (el +/- se sacó de acá, ahora vive en el popup de detalle del producto,
+   ver pedido-cliente.js). El +/- del cliente/edición del admin abren ese
+   popup al tocar la tarjeta entera. */
 .product-card {
   position: relative;
   background: var(--panel);
@@ -861,7 +863,6 @@ button.small {
   padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   box-shadow: var(--shadow);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
@@ -873,7 +874,7 @@ button.small {
 
 .product-card-media {
   position: relative;
-  height: 150px;
+  height: 190px;
   border-radius: var(--radius-md);
   overflow: hidden;
   background: linear-gradient(135deg, var(--primary-soft), var(--panel));
@@ -903,11 +904,22 @@ button.small {
   background: linear-gradient(to top, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.15) 55%, transparent 100%);
 }
 
+/* Nombre + precio + descripción, los tres superpuestos sobre la foto (a
+   pedido explícito, mostrando una foto con los tres recuadrados encima) --
+   .product-card-media-info es la columna completa; -top es la fila de
+   nombre+precio nomás. La tarjeta ya no tiene nada abajo de la foto -- la
+   foto ocupa todo el contenedor. */
 .product-card-media-info {
   position: absolute;
   left: 14px;
   right: 14px;
   bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.product-card-media-info-top {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -935,23 +947,14 @@ button.small {
   border-radius: var(--radius-pill);
 }
 
-.product-card .product-description {
-  color: var(--muted);
-  font-size: 0.85rem;
-  flex: 1;
+.product-card-media-info .product-description {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.82rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-.product-card .product-price {
-  align-self: flex-start;
-  font-weight: 700;
-  color: var(--secondary);
-  background: var(--secondary-soft);
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
 }
 
 .qty-stepper {

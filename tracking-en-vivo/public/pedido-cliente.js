@@ -215,26 +215,30 @@ function buildProductCard(id, p) {
   overlay.className = 'product-card-media-overlay';
   media.appendChild(overlay);
 
+  // Nombre + precio + descripción, los tres superpuestos sobre la foto (a
+  // pedido explícito) -- la tarjeta ya no tiene nada abajo de la foto.
   const info = document.createElement('div');
   info.className = 'product-card-media-info';
+  const top = document.createElement('div');
+  top.className = 'product-card-media-info-top';
   const name = document.createElement('div');
   name.className = 'product-name';
   name.textContent = p.name;
-  info.appendChild(name);
+  top.appendChild(name);
   const price = document.createElement('div');
   price.className = 'product-price';
   price.textContent = `$${Number(p.price || 0).toFixed(2)}`;
-  info.appendChild(price);
-  media.appendChild(info);
-
-  card.appendChild(media);
-
+  top.appendChild(price);
+  info.appendChild(top);
   if (p.description) {
     const desc = document.createElement('div');
     desc.className = 'product-description';
     desc.textContent = p.description;
-    card.appendChild(desc);
+    info.appendChild(desc);
   }
+  media.appendChild(info);
+
+  card.appendChild(media);
 
   card.addEventListener('click', () => openProductDetail(id, p));
 
