@@ -64,13 +64,23 @@
 
   <button id="cart-fab-btn" type="button" class="primary cart-fab" style="display:none;">🛒 Ver carrito</button>
 
-  <div id="cart-overlay" class="modal-overlay" style="display:none;">
-    <div class="modal-box">
-      <button id="cart-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
-      <h2>Tu carrito</h2>
-      <div id="cart-items"></div>
-      <div id="cart-total" class="cart-total" style="display:none;"></div>
-      <button id="cart-checkout-btn" type="button" class="primary" style="margin-top:14px;">Continuar</button>
+  <div id="cart-overlay" class="cart-drawer-overlay" style="display:none;">
+    <div class="cart-drawer">
+      <div class="cart-drawer-header">
+        <h2>Tu carrito</h2>
+        <button id="cart-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+      </div>
+      <div class="cart-drawer-columns">
+        <span></span>
+        <span>Cant.</span>
+        <span>Precio</span>
+        <span></span>
+      </div>
+      <div id="cart-items" class="cart-drawer-items"></div>
+      <div class="cart-drawer-footer">
+        <div id="cart-total" class="cart-total" style="display:none;"></div>
+        <button id="cart-checkout-btn" type="button" class="primary">Continuar</button>
+      </div>
     </div>
   </div>
 

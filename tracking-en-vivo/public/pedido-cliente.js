@@ -375,27 +375,71 @@ function renderCart() {
   cartCheckoutBtn.disabled = false;
   entries.forEach(([id, qty]) => {
     const p = products.get(id);
-    const row = document.createElement('div');
-    row.className = 'cart-item';
-    const label = document.createElement('span');
-    label.textContent = `${qty} × ${p.name}`;
-    const right = document.createElement('span');
-    right.style.display = 'flex';
-    right.style.alignItems = 'center';
-    right.style.gap = '10px';
-    const amount = document.createElement('span');
-    amount.textContent = `$${(p.price * qty).toFixed(2)}`;
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.className = 'danger small';
-    removeBtn.textContent = '🗑';
-    removeBtn.addEventListener('click', () => setQty(id, 0));
-    right.append(amount, removeBtn);
-    row.append(label, right);
-    cartItemsEl.appendChild(row);
+    cartItemsEl.appendChild(buildCartItemRow(id, p, qty));
   });
   cartTotalEl.style.display = 'flex';
-  cartTotalEl.innerHTML = `<span>Total</span><span>$${cartTotal().toFixed(2)}</span>`;
+  cartTotalEl.innerHTML = `<span>Subtotal</span><span>$${cartTotal().toFixed(2)}</span>`;
+}
+
+// Una fila por producto en el panel de carrito -- foto + nombre/descripción
+// superpuestos (mismo lenguaje que .product-card-media), cantidad y precio
+// unitario en columnas aparte, y el 🗑 de siempre para sacarlo. A pedido
+// explícito, con un croquis mostrando el carrito como panel lateral con
+// foto por ítem en vez de una lista de texto plano.
+function buildCartItemRow(id, p, qty) {
+  const row = document.createElement('div');
+  row.className = 'cart-drawer-item';
+
+  const media = document.createElement('div');
+  media.className = 'cart-drawer-item-media';
+  if (p.imageUrl) {
+    const img = document.createElement('img');
+    img.src = p.imageUrl;
+    img.alt = p.name;
+    media.appendChild(img);
+  } else {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'no-image';
+    placeholder.textContent = '🍣';
+    media.appendChild(placeholder);
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'cart-drawer-item-media-overlay';
+  media.appendChild(overlay);
+  const info = document.createElement('div');
+  info.className = 'cart-drawer-item-media-info';
+  const name = document.createElement('div');
+  name.className = 'product-name';
+  name.textContent = p.name;
+  info.appendChild(name);
+  if (p.description) {
+    const desc = document.createElement('div');
+    desc.className = 'product-description';
+    desc.textContent = p.description;
+    info.appendChild(desc);
+  }
+  media.appendChild(info);
+  row.appendChild(media);
+
+  const qtyEl = document.createElement('div');
+  qtyEl.className = 'cart-drawer-item-qty';
+  qtyEl.textContent = qty;
+  row.appendChild(qtyEl);
+
+  const priceEl = document.createElement('div');
+  priceEl.className = 'cart-drawer-item-price';
+  priceEl.textContent = `$${Number(p.price || 0).toFixed(2)}`;
+  row.appendChild(priceEl);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'danger small cart-drawer-item-remove';
+  removeBtn.textContent = '🗑';
+  removeBtn.title = 'Sacar del carrito';
+  removeBtn.addEventListener('click', () => setQty(id, 0));
+  row.appendChild(removeBtn);
+
+  return row;
 }
 
 cartFabBtn.addEventListener('click', () => { renderCart(); cartOverlay.style.display = 'flex'; });

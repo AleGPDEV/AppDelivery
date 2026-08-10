@@ -1016,6 +1016,172 @@ button.small {
   border-top: 2px solid var(--border);
 }
 
+/* "Tu carrito" como panel lateral desde la derecha, en vez de un modal
+   centrado -- a pedido explícito, con un croquis mostrando el panel pegado
+   al borde derecho y cada ítem con su foto. Mismo fondo/blur que
+   .modal-overlay, pero el contenido no se centra: se pega a la derecha y
+   ocupa toda la altura. */
+.cart-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 14, 10, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  animation: fade-in 0.15s ease;
+}
+
+.cart-drawer {
+  width: min(420px, 100%);
+  height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  animation: slide-in-right 0.2s ease;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.cart-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cart-drawer-header h2 {
+  margin: 0;
+}
+
+.cart-drawer-columns {
+  display: grid;
+  grid-template-columns: 1fr 44px 68px 28px;
+  gap: 10px;
+  padding: 14px 4px 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cart-drawer-columns span:nth-child(2) { text-align: center; }
+.cart-drawer-columns span:nth-child(3) { text-align: right; }
+
+.cart-drawer-items {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.cart-drawer-footer {
+  flex-shrink: 0;
+  padding-top: 10px;
+}
+
+.cart-drawer-item {
+  display: grid;
+  grid-template-columns: 1fr 44px 68px 28px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cart-drawer-item:last-child {
+  border-bottom: none;
+}
+
+.cart-drawer-item-media {
+  position: relative;
+  height: 66px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--primary-soft), var(--panel));
+}
+
+.cart-drawer-item-media img,
+.cart-drawer-item-media .no-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cart-drawer-item-media .no-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  color: var(--muted);
+}
+
+.cart-drawer-item-media-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.1) 60%, transparent 100%);
+}
+
+.cart-drawer-item-media-info {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 5px;
+}
+
+.cart-drawer-item-media-info .product-name {
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cart-drawer-item-media-info .product-description {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cart-drawer-item-qty {
+  text-align: center;
+  font-weight: 700;
+}
+
+.cart-drawer-item-price {
+  text-align: right;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.cart-drawer-item-remove {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 520px) {
+  .cart-drawer {
+    padding: 16px;
+  }
+}
+
 /* Hero de pedido-cliente.html */
 
 header.hero {
