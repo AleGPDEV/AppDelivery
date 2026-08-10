@@ -632,6 +632,21 @@ button.small {
   font-size: 0.8rem;
 }
 
+/* Marca los pedidos "Retira en el local" (sin lat/lng resueltos) en la
+   columna Origen -- para que se distingan de un vistazo de los que sí
+   necesitan delivery, ver pedidos.js. */
+.pickup-badge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--secondary-soft);
+  color: var(--secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
 .order-table button.small {
   padding: 4px 8px;
 }

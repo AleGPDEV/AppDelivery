@@ -346,8 +346,31 @@ async function mount(root) {
     tdTicket.textContent = o.seq != null ? `#${o.seq}` : '';
     tr.appendChild(tdTicket);
 
+    // Un pedido sin lat/lng nunca tuvo una dirección resuelta -- es "Retira
+    // en el local" (mismo criterio que ya usan map-panel.js/route-helper.js
+    // para no dibujarle pin ni meterlo en una ruta). A pedido explícito: se
+    // marca en Origen para verlo de un vistazo, y la celda de "Delivery
+    // asignado" deja de mostrar un <select> -- asignarle un delivery a algo
+    // que el cliente retira él mismo no tiene sentido y generaba confusión
+    // ("aparece para asignar un delivery y no aparece nada que remarque
+    // que pasa a retirar").
+    const isPickup = o.lat == null;
+
     const tdOrigin = document.createElement('td');
-    tdOrigin.textContent = o.source === 'web' ? '🌐 Web' : '';
+    tdOrigin.style.display = 'flex';
+    tdOrigin.style.gap = '4px';
+    if (o.source === 'web') {
+      const webBadge = document.createElement('span');
+      webBadge.textContent = '🌐 Web';
+      tdOrigin.appendChild(webBadge);
+    }
+    if (isPickup) {
+      const pickupBadge = document.createElement('span');
+      pickupBadge.className = 'pickup-badge';
+      pickupBadge.textContent = '🏠 Retira';
+      pickupBadge.title = 'El cliente retira en el local -- no hace falta asignarle delivery.';
+      tdOrigin.appendChild(pickupBadge);
+    }
     tr.appendChild(tdOrigin);
 
     fieldColumns.forEach((c) => {
@@ -357,26 +380,33 @@ async function mount(root) {
     });
 
     const tdAssign = document.createElement('td');
-    const assignSelect = document.createElement('select');
-    const noneOpt = document.createElement('option');
-    noneOpt.value = '';
-    noneOpt.textContent = 'Sin asignar';
-    assignSelect.appendChild(noneOpt);
-    Store.getDrivers().forEach((d, driverId) => {
-      const opt = document.createElement('option');
-      opt.value = driverId;
-      opt.textContent = d.name;
-      assignSelect.appendChild(opt);
-    });
-    if (o.assignedTo && !Store.getDrivers().has(o.assignedTo)) {
-      const opt = document.createElement('option');
-      opt.value = o.assignedTo;
-      opt.textContent = `${driverLabel(o.assignedTo)} (desconectado)`;
-      assignSelect.appendChild(opt);
+    if (isPickup) {
+      const pickupLabel = document.createElement('span');
+      pickupLabel.className = 'hint';
+      pickupLabel.textContent = 'Retira en el local';
+      tdAssign.appendChild(pickupLabel);
+    } else {
+      const assignSelect = document.createElement('select');
+      const noneOpt = document.createElement('option');
+      noneOpt.value = '';
+      noneOpt.textContent = 'Sin asignar';
+      assignSelect.appendChild(noneOpt);
+      Store.getDrivers().forEach((d, driverId) => {
+        const opt = document.createElement('option');
+        opt.value = driverId;
+        opt.textContent = d.name;
+        assignSelect.appendChild(opt);
+      });
+      if (o.assignedTo && !Store.getDrivers().has(o.assignedTo)) {
+        const opt = document.createElement('option');
+        opt.value = o.assignedTo;
+        opt.textContent = `${driverLabel(o.assignedTo)} (desconectado)`;
+        assignSelect.appendChild(opt);
+      }
+      assignSelect.value = o.assignedTo || '';
+      assignSelect.addEventListener('change', () => assignOrder(id, assignSelect.value || null));
+      tdAssign.appendChild(assignSelect);
     }
-    assignSelect.value = o.assignedTo || '';
-    assignSelect.addEventListener('change', () => assignOrder(id, assignSelect.value || null));
-    tdAssign.appendChild(assignSelect);
 
     const tdPayment = document.createElement('td');
     const paySelect = document.createElement('select');
