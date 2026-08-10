@@ -1709,3 +1709,14 @@ header.hero > #theme-toggle-btn:hover {
   font-size: 0.85rem;
   margin: 10px 0 0;
 }
+
+.track-map.track-map-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+}

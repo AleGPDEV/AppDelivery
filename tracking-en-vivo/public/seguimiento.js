@@ -18,8 +18,29 @@ function loadGoogleMaps() {
     script.onload = () => resolve(window.google.maps);
     script.onerror = () => reject(new Error('No se pudo cargar el mapa.'));
     document.head.appendChild(script);
+    // Algunos navegadores integrados (ej. el de WhatsApp) bloquean o cuelgan
+    // la carga de scripts externos sin tirar ni onload ni onerror -- sin este
+    // timeout, `getMap()` quedaría esperando para siempre y la página se ve
+    // rota (el status de arriba está bien, pero el mapa nunca aparece ni
+    // avisa nada).
+    setTimeout(() => reject(new Error('El mapa tardó demasiado en cargar.')), 8000);
   });
   return googleMapsLoadPromise;
+}
+
+// Google llama a esto globalmente cuando la API key es rechazada (referrer
+// no autorizado, etc.) -- pasa en algunos navegadores integrados (WhatsApp)
+// que mandan un Referer distinto al del sitio real.
+window.gm_authFailure = () => showMapFallback();
+
+function showMapFallback() {
+  const mapEl = document.getElementById('track-map');
+  if (mapEl.dataset.fallback) return;
+  mapEl.dataset.fallback = '1';
+  mapEl.classList.add('track-map-fallback');
+  mapEl.textContent = '📍 No pudimos cargar el mapa acá.';
+  mapHintEl.textContent = 'Probá abriendo este link en tu navegador (Chrome/Safari) en vez de adentro de WhatsApp -- desde el menú ⋮ o el ícono de compartir de arriba, buscá la opción "Abrir en el navegador".';
+  mapHintEl.style.display = '';
 }
 
 function svgIcon(maps, color, emoji, size, shape) {
@@ -77,7 +98,8 @@ if (!orderId) {
   }
 
   async function showDestination(lat, lng) {
-    const api = await getMap();
+    let api;
+    try { api = await getMap(); } catch (e) { showMapFallback(); return; }
     const position = { lat, lng };
     if (api.destMarker) api.destMarker.setPosition(position);
     else api.destMarker = new api.maps.Marker({ position, map: api.map, icon: svgIcon(api.maps, '#dc2626', '🏠', 38, 'square') });
@@ -85,7 +107,8 @@ if (!orderId) {
   }
 
   async function showDriver(lat, lng) {
-    const api = await getMap();
+    let api;
+    try { api = await getMap(); } catch (e) { showMapFallback(); return; }
     const position = { lat, lng };
     if (api.driverMarker) api.driverMarker.setPosition(position);
     else api.driverMarker = new api.maps.Marker({ position, map: api.map, icon: svgIcon(api.maps, '#2563eb', '🛵', 44, 'circle'), zIndex: 10 });
