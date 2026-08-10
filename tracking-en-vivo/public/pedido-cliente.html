@@ -46,12 +46,14 @@
         <img id="product-detail-img" src="" alt="" style="display:none;">
         <div class="modal-image-hero-overlay"></div>
         <div class="modal-image-hero-fields">
-          <div id="product-detail-name" class="modal-image-hero-input-title" style="color:#fff;"></div>
-          <div id="product-detail-price" class="modal-image-hero-input-desc" style="color:#fff; font-weight:700;"></div>
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+            <div id="product-detail-name" class="modal-image-hero-input-title" style="color:#fff;"></div>
+            <div id="product-detail-price" class="modal-image-hero-input-desc" style="color:#fff; font-weight:700; flex-shrink:0;"></div>
+          </div>
+          <div id="product-detail-description" style="color:rgba(255,255,255,0.85); font-size:0.85rem;"></div>
         </div>
       </div>
-      <p id="product-detail-description" class="hint"></p>
-      <div class="qty-stepper" style="justify-content:center; margin:4px 0 16px;">
+      <div class="qty-stepper" style="justify-content:center; margin:16px 0;">
         <button id="product-detail-minus" type="button" class="small">−</button>
         <span id="product-detail-qty"></span>
         <button id="product-detail-plus" type="button" class="primary small">+</button>

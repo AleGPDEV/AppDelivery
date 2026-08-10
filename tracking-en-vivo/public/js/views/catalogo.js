@@ -127,7 +127,10 @@ const template = `
         <input type="file" id="edit-product-image" accept="image/*" style="display:none;">
       </label>
       <div class="modal-image-hero-fields">
-        <input type="text" id="edit-product-name" class="modal-image-hero-input modal-image-hero-input-title" placeholder="Nombre del producto">
+        <div style="display:flex; align-items:flex-end; gap:8px;">
+          <input type="text" id="edit-product-name" class="modal-image-hero-input modal-image-hero-input-title" placeholder="Nombre del producto" style="flex:1;">
+          <input type="text" id="edit-product-price" class="modal-image-hero-input modal-image-hero-input-title" placeholder="Precio" style="width:110px; flex-shrink:0;">
+        </div>
         <input type="text" id="edit-product-description" class="modal-image-hero-input modal-image-hero-input-desc" placeholder="Descripción">
       </div>
     </div>
@@ -135,10 +138,6 @@ const template = `
     <div class="field">
       <label for="edit-product-category">Categoría</label>
       <select id="edit-product-category"></select>
-    </div>
-    <div class="field">
-      <label for="edit-product-price">Precio</label>
-      <input type="text" id="edit-product-price">
     </div>
     <div class="field">
       <label style="display:flex; align-items:center; gap:6px;">
