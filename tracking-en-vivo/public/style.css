@@ -583,9 +583,23 @@ button.small {
   border-bottom: none;
 }
 
+.order-list li.empty {
+  color: var(--muted);
+  justify-content: flex-start;
+}
+
 .order-info {
   font-size: 0.9rem;
   flex: 1;
+}
+
+/* Lista de productos del catálogo dentro de "+ Nuevo pedido" (elegir items
+   a mano cuando el cliente no puede pedir por la web) -- mismo .order-list
+   de siempre, solo con un tope de alto para no alargar el modal si la
+   categoría tiene muchos productos. */
+.field-scroll-list {
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .order-list select {

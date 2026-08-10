@@ -32,6 +32,16 @@ export const template = `
     <label for="new-location">Ubicación de entrega</label>
     <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
   </div>
+  <div class="field">
+    <label for="new-item-category-select">Productos del catálogo (opcional)</label>
+    <p class="hint">Para cuando el cliente te pide por teléfono/WhatsApp en vez de la web -- elegí lo mismo que hubiera elegido él, y el pedido queda con el mismo detalle (🧾) que uno de la web. Si no elegís nada, el pedido queda solo con el monto de abajo, como siempre.</p>
+    <select id="new-item-category-select"></select>
+    <ul id="new-item-product-list" class="order-list field-scroll-list" style="margin-top:10px;"></ul>
+  </div>
+  <div class="field" id="new-item-summary-field" hidden>
+    <label>Productos agregados</label>
+    <ul id="new-item-summary" class="order-list"></ul>
+  </div>
   <div class="field" data-field="amount">
     <label for="new-amount">Monto</label>
     <input type="text" id="new-amount" placeholder="$ 1.630,00">
@@ -95,11 +105,16 @@ export function mount(root) {
   const newOrderStatusEl = root.querySelector('#new-order-status');
   const dayGateMsgEl = root.querySelector('#day-gate-msg');
   const orderDupWarningEl = root.querySelector('#order-dup-warning');
+  const newItemCategorySelect = root.querySelector('#new-item-category-select');
+  const newItemProductListEl = root.querySelector('#new-item-product-list');
+  const newItemSummaryFieldEl = root.querySelector('#new-item-summary-field');
+  const newItemSummaryEl = root.querySelector('#new-item-summary');
 
   const socket = Store.socket;
   let deliveryType = null;
   let dayOpen = !!Store.getBusinessDay();
   let formConfig = Store.getFormConfig();
+  const selectedItems = new Map(); // productId -> qty, para "Productos del catálogo"
 
   function applyDeliveryTypeButtons() {
     deliveryTypePickupBtn.className = deliveryType === 'retira' ? 'primary small' : 'small';
@@ -116,6 +131,144 @@ export function mount(root) {
     deliveryType = 'envio';
     applyDeliveryTypeButtons();
   });
+
+  // ---------- Productos del catálogo (opcional) ----------
+  // Para cuando el cliente pide por teléfono/WhatsApp en vez de la web --
+  // reusa el mismo catálogo (Store.getCategories()/getProducts(), ya
+  // cacheado, sin pedir nada nuevo al servidor) para poder armar el mismo
+  // detalle de items que ya tiene un pedido web (🧾 en la tabla). Es
+  // puramente aditivo: si no se elige nada, el pedido se sigue cargando
+  // solo con el monto de siempre.
+  function sortedVisibleCategories() {
+    return Array.from(Store.getCategories().entries())
+      .filter(([, c]) => c.visible !== false)
+      .sort((a, b) => a[1].sortOrder - b[1].sortOrder);
+  }
+
+  function productsInCategory(categoryId) {
+    return Array.from(Store.getProducts().entries())
+      .filter(([, p]) => p.categoryId === categoryId && p.visible !== false)
+      .sort((a, b) => a[1].sortOrder - b[1].sortOrder);
+  }
+
+  function itemsSubtotal() {
+    let total = 0;
+    selectedItems.forEach((qty, productId) => {
+      const p = Store.getProducts().get(productId);
+      if (p) total += p.price * qty;
+    });
+    return total;
+  }
+
+  // Autocompleta el Monto a partir de lo elegido -- pero no lo pisa si el
+  // admin ya vació la selección de productos después de haber tipeado algo
+  // a mano (selectedItems.size === 0 no toca el campo).
+  function updateAmountFromItems() {
+    if (selectedItems.size === 0) return;
+    newAmountEl.value = itemsSubtotal().toFixed(2);
+  }
+
+  function renderItemCategoryOptions() {
+    const previous = newItemCategorySelect.value;
+    newItemCategorySelect.innerHTML = '';
+    const cats = sortedVisibleCategories();
+    if (cats.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Sin categorías en el catálogo';
+      newItemCategorySelect.appendChild(opt);
+      return;
+    }
+    cats.forEach(([catId, c]) => {
+      const opt = document.createElement('option');
+      opt.value = catId;
+      opt.textContent = c.name;
+      newItemCategorySelect.appendChild(opt);
+    });
+    if (previous && cats.some(([catId]) => catId === previous)) newItemCategorySelect.value = previous;
+  }
+
+  function renderItemProductList() {
+    newItemProductListEl.innerHTML = '';
+    const categoryId = newItemCategorySelect.value;
+    const list = productsInCategory(categoryId);
+    if (list.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = categoryId ? 'Esta categoría no tiene productos.' : 'Elegí una categoría.';
+      newItemProductListEl.appendChild(li);
+      return;
+    }
+    list.forEach(([productId, p]) => {
+      const li = document.createElement('li');
+      const label = document.createElement('span');
+      label.className = 'order-info';
+      label.textContent = `${p.name} — $${Number(p.price || 0).toFixed(2)}`;
+      li.appendChild(label);
+
+      const stepper = document.createElement('div');
+      stepper.className = 'qty-stepper';
+      const minusBtn = document.createElement('button');
+      minusBtn.type = 'button';
+      minusBtn.className = 'small';
+      minusBtn.textContent = '−';
+      minusBtn.addEventListener('click', () => setItemQty(productId, (selectedItems.get(productId) || 0) - 1));
+      const qtySpan = document.createElement('span');
+      qtySpan.textContent = selectedItems.get(productId) || 0;
+      const plusBtn = document.createElement('button');
+      plusBtn.type = 'button';
+      plusBtn.className = 'primary small';
+      plusBtn.textContent = '+';
+      plusBtn.addEventListener('click', () => setItemQty(productId, (selectedItems.get(productId) || 0) + 1));
+      stepper.append(minusBtn, qtySpan, plusBtn);
+      li.appendChild(stepper);
+      newItemProductListEl.appendChild(li);
+    });
+  }
+
+  function renderItemSummary() {
+    newItemSummaryEl.innerHTML = '';
+    newItemSummaryFieldEl.hidden = selectedItems.size === 0;
+    selectedItems.forEach((qty, productId) => {
+      const p = Store.getProducts().get(productId);
+      if (!p) return;
+      const li = document.createElement('li');
+      const label = document.createElement('span');
+      label.className = 'order-info';
+      label.textContent = `${qty} × ${p.name}`;
+      li.appendChild(label);
+      const right = document.createElement('span');
+      right.style.display = 'flex';
+      right.style.alignItems = 'center';
+      right.style.gap = '8px';
+      const amount = document.createElement('span');
+      amount.textContent = `$${(p.price * qty).toFixed(2)}`;
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'danger small';
+      removeBtn.textContent = '🗑';
+      removeBtn.addEventListener('click', () => setItemQty(productId, 0));
+      right.append(amount, removeBtn);
+      li.appendChild(right);
+      newItemSummaryEl.appendChild(li);
+    });
+  }
+
+  function setItemQty(productId, qty) {
+    if (qty <= 0) selectedItems.delete(productId);
+    else selectedItems.set(productId, qty);
+    renderItemProductList();
+    renderItemSummary();
+    updateAmountFromItems();
+  }
+
+  function resetItemPicker() {
+    selectedItems.clear();
+    renderItemProductList();
+    renderItemSummary();
+  }
+
+  newItemCategorySelect.addEventListener('change', renderItemProductList);
 
   function applyDayGate() {
     dayGateMsgEl.style.display = dayOpen ? 'none' : '';
@@ -310,6 +463,7 @@ export function mount(root) {
     }
 
     const id = genId();
+    const items = Array.from(selectedItems.entries()).map(([productId, qty]) => ({ productId, qty }));
     socket.emit('order:add', {
       id,
       orderNumber,
@@ -321,6 +475,7 @@ export function mount(root) {
       amount,
       custom,
       pickup: deliveryType === 'retira',
+      items: items.length > 0 ? items : undefined,
     });
     if (assignTo) {
       socket.emit('order:assign', { id, driverId: assignTo });
@@ -336,6 +491,7 @@ export function mount(root) {
     newAssignEl.value = '';
     deliveryType = null;
     applyDeliveryTypeButtons();
+    resetItemPicker();
     customFields().forEach((f) => {
       const input = root.querySelector(`#${customFieldInputId(f.key)}`);
       if (input) input.value = '';
@@ -378,6 +534,10 @@ export function mount(root) {
   const onOrderUpdate = (e) => {
     if (e.detail.assignedTo) recomputeRouteForDriver(e.detail.assignedTo);
   };
+  const onCatalogSnapshot = () => {
+    renderItemCategoryOptions();
+    renderItemProductList();
+  };
 
   Store.on('business-day:status', onDayStatus);
   Store.on('form-config:snapshot', onFormConfigSnapshot);
@@ -385,6 +545,7 @@ export function mount(root) {
   Store.on('driver:update', onDriverUpdate);
   Store.on('driver:remove', onDriverRemove);
   Store.on('order:update', onOrderUpdate);
+  Store.on('catalog:snapshot', onCatalogSnapshot);
 
   unsubscribe = () => {
     Store.off('business-day:status', onDayStatus);
@@ -393,12 +554,15 @@ export function mount(root) {
     Store.off('driver:update', onDriverUpdate);
     Store.off('driver:remove', onDriverRemove);
     Store.off('order:update', onOrderUpdate);
+    Store.off('catalog:snapshot', onCatalogSnapshot);
   };
 
   applyDeliveryTypeButtons();
   applyDayGate();
   applyFormConfig();
   renderAssignOptions();
+  renderItemCategoryOptions();
+  renderItemProductList();
 }
 
 export function unmount() {

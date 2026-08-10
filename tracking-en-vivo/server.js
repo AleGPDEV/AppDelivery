@@ -1066,7 +1066,7 @@ io.on('connection', (socket) => {
   // opcionales: un pedido que retira en el local no tiene ubicación.
   // `id` lo genera el cliente (igual que el driverId) para poder asignarlo
   // en el mismo tick sin esperar una confirmación del servidor.
-  socket.on('order:add', ({ id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod, custom, pickup }) => {
+  socket.on('order:add', ({ id, orderNumber, phone, name, lat, lng, label, amount, paymentMethod, custom, pickup, items }) => {
     if (!socket.data.isAdmin || !id || !openBusinessDay) return;
     const hasLocation = typeof lat === 'number' && typeof lng === 'number';
     // Tipo de envío obligatorio: o retira (pickup) o tiene que traer una
@@ -1076,6 +1076,25 @@ io.on('connection', (socket) => {
     // order:web-add, que lo exige siempre porque ahí no hay otra forma de
     // contactar a un cliente anónimo.
     if ((formConfig.phone?.required && !phone) || !(pickup || hasLocation)) return;
+
+    // Items del catálogo son opcionales acá (a diferencia de order:web-add,
+    // donde son obligatorios) — el admin puede seguir cargando un pedido
+    // solo con el monto a mano, como siempre, o elegir productos para
+    // "Nuevo pedido" cuando el cliente pide por teléfono/WhatsApp en vez de
+    // la web (mismo detalle 🧾 que ya tienen los pedidos web). Se resuelven
+    // acá contra el catálogo actual (no se confía en el nombre/precio que
+    // mande el cliente) para que quede un registro fiel aunque el producto
+    // cambie de precio después.
+    const resolvedItems = [];
+    if (Array.isArray(items)) {
+      items.slice(0, 30).forEach((it) => {
+        const p = products.get(it?.productId);
+        if (!p) return;
+        const qty = Math.min(Math.max(parseInt(it?.qty, 10) || 0, 1), 50);
+        resolvedItems.push({ productId: it.productId, name: p.name, price: p.price, qty });
+      });
+    }
+
     const entry = {
       seq: nextSeq++,
       orderNumber: (orderNumber || '').toString().slice(0, 20),
@@ -1092,6 +1111,7 @@ io.on('connection', (socket) => {
       archivedAt: null,
       updatedAt: Date.now(),
       custom: sanitizeCustom(custom),
+      items: resolvedItems,
     };
     orders.set(id, entry);
     persistOrder(id, entry);
