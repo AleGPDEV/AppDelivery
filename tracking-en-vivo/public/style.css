@@ -113,14 +113,32 @@ header {
 }
 
 /* Logo del negocio (Ajustes -> Diseño) -- inyectado por branding.js, oculto
-   por defecto hasta que haya uno subido. Va antes del <h1> en el markup, se
-   ve como un bloque chico arriba del título. */
+   por defecto hasta que haya uno subido. Va antes del <h1> en el markup. En
+   el header del admin (#page-header) queda a la izquierda del título en
+   fila (ver más abajo); pedido-cliente.html usa su propio wrapper
+   (.hero-content) y lo apila arriba en columna, así que esta regla base no
+   le pisa nada. */
 .brand-logo {
   display: block;
   max-height: 40px;
   max-width: 160px;
   object-fit: contain;
   margin-bottom: 6px;
+}
+
+/* Header del admin (admin-shell.html): logo a la izquierda del nombre de
+   la tienda, en fila -- a diferencia del <header> genérico de arriba
+   (pensado para apilar logo/título en columna, que sigue usando
+   pedido-cliente.html vía .hero-content). */
+#page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#page-header .brand-logo {
+  margin-bottom: 0;
+  flex-shrink: 0;
 }
 
 .brand-logo-hero {
