@@ -6,6 +6,17 @@ const productsViewTitleEl = document.getElementById('products-view-title');
 const productsGridEl = document.getElementById('products-grid');
 const backToCategoriesBtn = document.getElementById('back-to-categories-btn');
 
+const productDetailOverlay = document.getElementById('product-detail-overlay');
+const productDetailCloseBtn = document.getElementById('product-detail-close-btn');
+const productDetailImgEl = document.getElementById('product-detail-img');
+const productDetailNameEl = document.getElementById('product-detail-name');
+const productDetailPriceEl = document.getElementById('product-detail-price');
+const productDetailDescriptionEl = document.getElementById('product-detail-description');
+const productDetailMinusBtn = document.getElementById('product-detail-minus');
+const productDetailQtyEl = document.getElementById('product-detail-qty');
+const productDetailPlusBtn = document.getElementById('product-detail-plus');
+const productDetailAddBtn = document.getElementById('product-detail-add-btn');
+
 const cartFabBtn = document.getElementById('cart-fab-btn');
 const cartOverlay = document.getElementById('cart-overlay');
 const cartCloseBtn = document.getElementById('cart-close-btn');
@@ -177,9 +188,14 @@ function categoryHasVisibleProducts(categoryId) {
 function buildProductCard(id, p) {
   const card = document.createElement('div');
   card.className = 'product-card';
+  card.style.cursor = 'pointer';
 
   // Foto a pantalla completa con degradé + nombre/precio encima, mismo
-  // lenguaje que .category-card -- ver comentario en style.css.
+  // lenguaje que .category-card -- ver comentario en style.css. Ya no tiene
+  // su propio +/- -- tocar la tarjeta abre el popup de detalle (ver
+  // openProductDetail), que es donde se elige la cantidad y se agrega al
+  // carrito -- a pedido explícito ("que cada item tenga su popup con
+  // nombre, precio, descripción, un +/- y un botón agregar al carrito").
   const media = document.createElement('div');
   media.className = 'product-card-media';
 
@@ -220,30 +236,65 @@ function buildProductCard(id, p) {
     card.appendChild(desc);
   }
 
-  const stepper = document.createElement('div');
-  stepper.className = 'qty-stepper';
-  const qty = cart[id] || 0;
-
-  const minusBtn = document.createElement('button');
-  minusBtn.type = 'button';
-  minusBtn.className = 'small';
-  minusBtn.textContent = '−';
-  minusBtn.addEventListener('click', () => setQty(id, (cart[id] || 0) - 1));
-
-  const qtySpan = document.createElement('span');
-  qtySpan.textContent = qty;
-
-  const plusBtn = document.createElement('button');
-  plusBtn.type = 'button';
-  plusBtn.className = 'primary small';
-  plusBtn.textContent = '+';
-  plusBtn.addEventListener('click', () => setQty(id, (cart[id] || 0) + 1));
-
-  stepper.append(minusBtn, qtySpan, plusBtn);
-  card.appendChild(stepper);
+  card.addEventListener('click', () => openProductDetail(id, p));
 
   return card;
 }
+
+// Popup de detalle del producto: nombre, precio, descripción, un +/- para
+// elegir cuánto llevar y un botón para agregarlo al carrito -- a pedido
+// explícito. Arranca en la cantidad que ya tenga en el carrito (para poder
+// seguir ajustando desde ahí) o en 1 si todavía no lo agregó; el mínimo acá
+// es 1 -- sacarlo del carrito del todo se sigue haciendo con el 🗑 de "Tu
+// carrito" (`renderCart()`), este popup es solo para agregar/ajustar.
+let detailProductId = null;
+let detailQty = 1;
+
+function renderProductDetailQty() {
+  productDetailQtyEl.textContent = detailQty;
+  productDetailMinusBtn.disabled = detailQty <= 1;
+}
+
+function openProductDetail(id, p) {
+  detailProductId = id;
+  detailQty = cart[id] || 1;
+
+  if (p.imageUrl) {
+    productDetailImgEl.src = p.imageUrl;
+    productDetailImgEl.style.display = '';
+  } else {
+    productDetailImgEl.style.display = 'none';
+  }
+  productDetailNameEl.textContent = p.name;
+  productDetailPriceEl.textContent = `$${Number(p.price || 0).toFixed(2)}`;
+  productDetailDescriptionEl.textContent = p.description || '';
+  productDetailDescriptionEl.style.display = p.description ? '' : 'none';
+  renderProductDetailQty();
+
+  productDetailOverlay.style.display = 'flex';
+}
+
+function closeProductDetail() {
+  productDetailOverlay.style.display = 'none';
+  detailProductId = null;
+}
+
+productDetailCloseBtn.addEventListener('click', closeProductDetail);
+productDetailOverlay.addEventListener('click', (e) => { if (e.target === productDetailOverlay) closeProductDetail(); });
+productDetailMinusBtn.addEventListener('click', () => {
+  if (detailQty <= 1) return;
+  detailQty -= 1;
+  renderProductDetailQty();
+});
+productDetailPlusBtn.addEventListener('click', () => {
+  detailQty += 1;
+  renderProductDetailQty();
+});
+productDetailAddBtn.addEventListener('click', () => {
+  if (!detailProductId) return;
+  setQty(detailProductId, detailQty);
+  closeProductDetail();
+});
 
 function renderCategoriesGrid() {
   categoryGridEl.innerHTML = '';

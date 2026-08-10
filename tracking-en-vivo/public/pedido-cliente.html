@@ -39,6 +39,27 @@
     </div>
   </main>
 
+  <div id="product-detail-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <button id="product-detail-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+      <div class="modal-image-hero modal-image-hero-4-3">
+        <img id="product-detail-img" src="" alt="" style="display:none;">
+        <div class="modal-image-hero-overlay"></div>
+        <div class="modal-image-hero-fields">
+          <div id="product-detail-name" class="modal-image-hero-input-title" style="color:#fff;"></div>
+          <div id="product-detail-price" class="modal-image-hero-input-desc" style="color:#fff; font-weight:700;"></div>
+        </div>
+      </div>
+      <p id="product-detail-description" class="hint"></p>
+      <div class="qty-stepper" style="justify-content:center; margin:4px 0 16px;">
+        <button id="product-detail-minus" type="button" class="small">−</button>
+        <span id="product-detail-qty"></span>
+        <button id="product-detail-plus" type="button" class="primary small">+</button>
+      </div>
+      <button id="product-detail-add-btn" type="button" class="primary">Agregar al carrito</button>
+    </div>
+  </div>
+
   <button id="cart-fab-btn" type="button" class="primary cart-fab" style="display:none;">🛒 Ver carrito</button>
 
   <div id="cart-overlay" class="modal-overlay" style="display:none;">
