@@ -7,7 +7,7 @@ import { recomputeRouteForDriver } from '/js/route-helper.js';
 // no hace falta cambiar de pantalla para cargar un pedido. Por eso no trae
 // <main> propio (el modal ya pone su propio contenedor).
 export const template = `
-  <p id="day-gate-msg" class="status error" style="display:none;">Iniciá el día desde "Analíticas" antes de cargar pedidos.</p>
+  <p id="day-gate-msg" class="status error" style="display:none;">Iniciá el día desde "Día Comercial" antes de cargar pedidos.</p>
   <div class="field" data-field="phone">
     <label for="new-phone">Celular</label>
     <input type="text" id="new-phone" placeholder="Ej: 099 123 456">

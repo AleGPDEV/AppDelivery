@@ -19,9 +19,9 @@
 
   <nav class="tabs">
     <a href="/pedidos.html" class="tab-btn">Pedidos</a>
-    <a href="/analiticas.html" class="tab-btn">Analíticas</a>
+    <a href="/analiticas.html" class="tab-btn">Día Comercial</a>
     <a href="/catalogo.html" class="tab-btn">Catálogo</a>
-    <a href="/proveedores.html" class="tab-btn">Proveedores</a>
+    <a href="/analisis-datos.html" class="tab-btn">Análisis de datos</a>
     <button id="theme-toggle-btn" class="tab-btn" type="button"></button>
     <button id="logout-btn" class="tab-btn" type="button">Cerrar sesión</button>
   </nav>
@@ -35,14 +35,19 @@
   <script type="module" src="js/router.js"></script>
   <script type="module" src="settings.js"></script>
   <script src="logout.js"></script>
-  <!-- Las 5 vistas de admin, cada una se auto-registra en el Router al cargar.
+  <!-- Las vistas de admin, cada una se auto-registra en el Router al cargar.
        nuevo-pedido.js ya no es una vista propia (el formulario se monta en
        un modal adentro de Pedidos) -- pedidos.js lo importa directo como
        dependencia. caja.js tampoco existe más -- su rendición se fusionó
-       adentro de dashboard.js (tarjeta por delivery, al lado del mapa). -->
+       adentro de dashboard.js (tarjeta por delivery, al lado del mapa),
+       aunque esa pestaña también se sacó del <nav> (ver Pedidos). proveedores.js
+       tampoco tiene pestaña propia -- analiticas.js (Día Comercial) importa
+       su template/mount/unmount y lo embebe directo, aunque su ruta y este
+       script tag se dejan igual para que /proveedores.html siga sirviendo. -->
   <script type="module" src="js/views/proveedores.js"></script>
   <script type="module" src="js/views/catalogo.js"></script>
   <script type="module" src="js/views/analiticas.js"></script>
+  <script type="module" src="js/views/analisis-datos.js"></script>
   <script type="module" src="js/views/pedidos.js"></script>
   <script type="module" src="js/views/dashboard.js"></script>
   <script type="module">

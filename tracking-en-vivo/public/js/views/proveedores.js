@@ -4,14 +4,20 @@ import { createDriverLabel } from '/js/driver-label.js';
 
 const NEW_SUPPLIER_VALUE = '__new__';
 
-const template = `
-<main class="wide">
+// Fragmento sin <main> propio -- se usa tal cual para la ruta /proveedores.html
+// (envuelto en <main class="wide">, ver Router.register más abajo) y también
+// se embebe directo adentro del <main> de analiticas.js (Día Comercial), que
+// ahora agrupa todo lo administrativo/dinero en una sola pantalla. mount()
+// sigue haciendo root.querySelector(...) contra lo que sea que haya
+// reemplazado a #view-root, así que le da lo mismo montarse solo o adentro
+// de otra vista.
+export const template = `
   <section class="panel">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
       <h2>Gastos a proveedores</h2>
       <button id="new-expense-open-btn" type="button" class="primary small">+ Agregar gasto</button>
     </div>
-    <p id="day-gate-msg" class="status error" style="display:none;">Iniciá el día desde "Analíticas" antes de cargar gastos.</p>
+    <p id="day-gate-msg" class="status error" style="display:none;">Iniciá el día desde "Día Comercial" antes de cargar gastos.</p>
 
     <div class="driver-card-stats" style="margin-top:14px;">
       <div class="driver-stat"><label>Gastos hoy</label><span class="value" id="expense-count">0</span></div>
@@ -37,7 +43,6 @@ const template = `
     <p class="hint">La lista de a quién le pagás -- elegilos del desplegable al cargar un gasto en vez de tipear el nombre cada vez, así después se puede ver cuánto se gastó por proveedor.</p>
     <div id="supplier-list" style="margin-top:10px;"></div>
   </section>
-</main>
 
 <div id="new-supplier-overlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
@@ -88,7 +93,7 @@ const template = `
 
 let unsubscribe = null;
 
-function mount(root) {
+export function mount(root) {
   const dayGateMsgEl = root.querySelector('#day-gate-msg');
   const newExpenseOpenBtn = root.querySelector('#new-expense-open-btn');
   const newExpenseOverlay = root.querySelector('#new-expense-overlay');
@@ -386,15 +391,18 @@ function mount(root) {
   };
 }
 
-function unmount() {
+export function unmount() {
   if (unsubscribe) unsubscribe();
   unsubscribe = null;
 }
 
+// La pestaña propia se sacó del <nav> (a pedido del usuario, se fusionó
+// adentro de Día Comercial -- ver analiticas.js), pero la ruta se deja
+// alcanzable por URL directa, mismo criterio que /dashboard.html.
 Router.register('/proveedores.html', {
   title: 'Proveedores — Deliverys en vivo',
   wide: true,
-  template,
+  template: `<main class="wide">${template}</main>`,
   mount,
   unmount,
 });

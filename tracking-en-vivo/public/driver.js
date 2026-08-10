@@ -248,7 +248,7 @@ function isCashPayment(paymentMethod) {
 
 // Se suma solo lo que va entregando en efectivo hasta ahora, sobre el
 // efectivo inicial que cargó el admin. No se resetea hasta que el admin
-// "Finalice el día" desde Analíticas, momento en que esos pedidos se
+// "Finalice el día" desde Día Comercial, momento en que esos pedidos se
 // archivan y dejan de contar.
 function renderCashSummary() {
   const delivered = Array.from(myOrders.values()).filter((o) => o.assignedTo === driverId && o.status === 'entregado' && !o.archivedAt);

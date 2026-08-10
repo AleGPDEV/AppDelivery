@@ -8,14 +8,17 @@ import { template as newOrderFormTemplate, mount as mountNewOrderForm, unmount a
 
 // Antes el mapa vivía al costado de la tabla (dos columnas); a pedido del
 // usuario, para tener mejor panorámica de la lista de pedidos, el mapa (y
-// todo lo que antes vivía en la pestaña "Deliverys y mapa": deliverys
-// activos + sus pedidos asignados, y el desglose de dinero por delivery)
-// pasa a ser una serie de secciones apilables de ancho completo, cada una
-// minimizable, arriba de la tabla — que ahora tiene toda la pantalla para
-// ella. Arrastrar pedidos con un orden personalizado y "separadores"
-// (barreras con texto) que se pueden intercalar entre pedidos sigue igual:
-// el orden se guarda para todos (persistido en Supabase vía
-// order:reorder/separator:*), no es una preferencia local de quien mira.
+// "Deliverys activos y pedidos asignados", que antes vivía en la pestaña
+// "Deliverys y mapa") pasan a ser secciones apilables de ancho completo,
+// cada una minimizable, arriba de la tabla — que ahora tiene toda la
+// pantalla para ella. Pedidos se queda solo con lo operativo (entran los
+// pedidos, se asignan, se controla qué tiene cada delivery y sus rutas) —
+// el desglose de dinero por delivery se mudó a Día Comercial junto con el
+// resto de lo administrativo (ver analiticas.js). Arrastrar pedidos con un
+// orden personalizado y "separadores" (barreras con texto) que se pueden
+// intercalar entre pedidos sigue igual: el orden se guarda para todos
+// (persistido en Supabase vía order:reorder/separator:*), no es una
+// preferencia local de quien mira.
 const template = `
 <main class="wide">
   <section class="panel collapsible-panel" id="pedidos-map-panel">
@@ -34,17 +37,6 @@ const template = `
     <div class="collapsible-body">
       <p id="assigned-empty" class="hint" hidden>Todavía no hay deliverys conectados.</p>
       <div id="assigned-cards"></div>
-    </div>
-  </section>
-
-  <section class="panel collapsible-panel" id="pedidos-cash-panel">
-    <div class="collapsible-header">
-      <h3>Desglose de dinero</h3>
-      <button id="cash-toggle-btn" type="button" class="small" title="Minimizar">▾</button>
-    </div>
-    <div class="collapsible-body">
-      <p id="cash-empty" class="hint" hidden>Todavía no hay entregas registradas.</p>
-      <div id="cash-cards"></div>
     </div>
   </section>
 
@@ -169,16 +161,14 @@ async function mount(root) {
   const newOrderModalBodyEl = root.querySelector('#new-order-modal-body');
   const assignedCardsEl = root.querySelector('#assigned-cards');
   const assignedEmptyEl = root.querySelector('#assigned-empty');
-  const cashCardsEl = root.querySelector('#cash-cards');
-  const cashEmptyEl = root.querySelector('#cash-empty');
 
   const mapPanel = await createMapPanel(root.querySelector('#map'), { driverCountEl });
   if (myGeneration !== currentGeneration) { mapPanel.teardown(); return; } // se navegó a otra vista mientras cargaba
 
-  // Cada una de las 3 secciones de arriba (mapa, deliverys activos, desglose
-  // de dinero) es minimizable por separado — solo oculta el contenido
-  // (`.collapsible-body`), no lo destruye, así el mapa de Google sigue vivo
-  // y las tarjetas no se pierden al volver a abrir.
+  // Cada una de las 2 secciones de arriba (mapa, deliverys activos) es
+  // minimizable por separado — solo oculta el contenido (`.collapsible-body`),
+  // no lo destruye, así el mapa de Google sigue vivo y las tarjetas no se
+  // pierden al volver a abrir.
   function wireCollapsible(sectionEl, toggleBtnEl, label) {
     let collapsed = false;
     toggleBtnEl.addEventListener('click', () => {
@@ -190,7 +180,6 @@ async function mount(root) {
   }
   wireCollapsible(root.querySelector('#pedidos-map-panel'), root.querySelector('#map-toggle-btn'), 'mapa');
   wireCollapsible(root.querySelector('#pedidos-assigned-panel'), root.querySelector('#assigned-toggle-btn'), 'deliverys activos y pedidos asignados');
-  wireCollapsible(root.querySelector('#pedidos-cash-panel'), root.querySelector('#cash-toggle-btn'), 'desglose de dinero');
 
   const socket = Store.socket;
   const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
@@ -678,34 +667,22 @@ async function mount(root) {
     recomputeRouteForDriver(driverId);
   }
 
-  // ---------- Deliverys activos y pedidos asignados / Desglose de dinero ----------
+  // ---------- Deliverys activos y pedidos asignados ----------
   // Mismo contenido que antes vivía solo en la pestaña "Deliverys y mapa"
-  // (rendición por delivery), portado tal cual acá pero partido en dos
-  // secciones: una con el nombre + pedidos sin entregar de cada delivery, y
-  // otra con su desglose de plata (cambio inicial, por método de pago,
-  // gastos asignados, total a entregar, cerrar rendición). Reusa el
-  // `driverLabel` que ya existe más arriba (misma instancia que usan los
-  // <select> "Delivery asignado" de la tabla) y reacciona a cambios de
-  // delivery/pedido/ruta a través de `mapPanel.onChange(...)` en vez de
-  // abrir una segunda tanda de suscripciones a Store para lo mismo.
+  // (la mitad "operativa" de la rendición por delivery — quién tiene qué
+  // pedido sin entregar). La otra mitad, el desglose de dinero (cambio
+  // inicial, por método de pago, gastos, total a entregar, cerrar
+  // rendición), se mudó a Día Comercial junto con el resto de lo
+  // administrativo — acá solo queda lo que hace falta para controlar
+  // pedidos/asignación/rutas. Reusa el `driverLabel` que ya existe más
+  // arriba (misma instancia que usan los <select> "Delivery asignado" de
+  // la tabla) y reacciona a cambios de delivery/pedido/ruta a través de
+  // `mapPanel.onChange(...)` en vez de abrir una segunda tanda de
+  // suscripciones a Store para lo mismo.
   const assignedCards = new Map(); // driverId -> refs
-  const cashCards = new Map(); // driverId -> refs
 
-  function sumBy(list, predicate) {
-    const filtered = list.filter(predicate);
-    return { count: filtered.length, total: filtered.reduce((sum, e) => sum + (e.amount || 0), 0) };
-  }
-  function fmtCell({ count, total }) {
-    return `${count} — $${total.toFixed(2)}`;
-  }
-  function pendingDeliveries(driverId) {
-    return Array.from(Store.getOrders().values()).filter((o) => o.assignedTo === driverId && o.status === 'entregado' && !o.reconciledAt);
-  }
   function assignedActiveOrders(driverId) {
     return Array.from(Store.getOrders().values()).filter((o) => o.assignedTo === driverId && o.status !== 'entregado' && !o.archivedAt);
-  }
-  function cashExpensesForDriver(driverId) {
-    return Array.from(Store.getExpenses().values()).filter((e) => e.driverId === driverId).reduce((sum, e) => sum + (e.amount || 0), 0);
   }
 
   function ensureAssignedCard(driverId) {
@@ -753,164 +730,36 @@ async function mount(root) {
     }
   }
 
-  function statCell(container, labelText) {
-    const wrap = document.createElement('div');
-    wrap.className = 'driver-stat';
-    const label = document.createElement('label');
-    label.textContent = labelText;
-    wrap.appendChild(label);
-    container.appendChild(wrap);
-    return wrap;
-  }
-
-  function buildCashStatCells(driverId, refs) {
-    refs.statsEl.innerHTML = '';
-    refs.methodCells.clear();
-
-    const cambioWrap = statCell(refs.statsEl, 'Cambio inicial');
-    const cambioInput = document.createElement('input');
-    cambioInput.type = 'text';
-    cambioInput.placeholder = '$ 0,00';
-    cambioInput.addEventListener('input', () => {
-      const amount = Geo.parseAmount(cambioInput.value) || 0;
-      socket.emit('driver:cash-start', { driverId, amount });
-      updateCashCard(driverId);
-    });
-    cambioWrap.appendChild(cambioInput);
-    MoneyCounter.attach(cambioInput);
-    refs.cambioInput = cambioInput;
-
-    formConfig.paymentMethods.forEach((m) => {
-      const wrap = statCell(refs.statsEl, m.name);
-      const valueEl = document.createElement('span');
-      valueEl.className = 'value';
-      wrap.appendChild(valueEl);
-      refs.methodCells.set(m.id, valueEl);
-    });
-
-    const ventasWrap = statCell(refs.statsEl, 'Ventas totales');
-    const ventasValueEl = document.createElement('span');
-    ventasValueEl.className = 'value';
-    ventasWrap.appendChild(ventasValueEl);
-    refs.ventasValueEl = ventasValueEl;
-
-    const gastosWrap = statCell(refs.statsEl, 'Gastos asignados');
-    const gastosValueEl = document.createElement('span');
-    gastosValueEl.className = 'value';
-    gastosWrap.appendChild(gastosValueEl);
-    refs.gastosValueEl = gastosValueEl;
-
-    const totalWrap = statCell(refs.statsEl, 'Total a entregar');
-    const totalValueEl = document.createElement('strong');
-    totalWrap.appendChild(totalValueEl);
-    refs.totalValueEl = totalValueEl;
-  }
-
-  function ensureCashCard(driverId) {
-    const existing = cashCards.get(driverId);
-    if (existing) return existing;
-    const card = document.createElement('div');
-    card.className = 'panel driver-card';
-    const header = document.createElement('div');
-    header.className = 'driver-card-header';
-    const nameEl = document.createElement('strong');
-    header.appendChild(nameEl);
-    const clearBtn = document.createElement('button');
-    clearBtn.type = 'button';
-    clearBtn.className = 'danger small';
-    clearBtn.textContent = 'Cerrar rendición';
-    clearBtn.addEventListener('click', () => {
-      socket.emit('driver:clear-log', { driverId });
-      socket.emit('driver:cash-start', { driverId, amount: 0 });
-      updateCashCard(driverId);
-    });
-    header.appendChild(clearBtn);
-    card.appendChild(header);
-    const statsEl = document.createElement('div');
-    statsEl.className = 'driver-card-stats';
-    card.appendChild(statsEl);
-    cashCardsEl.appendChild(card);
-    const refs = { card, nameEl, statsEl, methodCells: new Map() };
-    cashCards.set(driverId, refs);
-    buildCashStatCells(driverId, refs);
-    return refs;
-  }
-
-  function updateCashCard(driverId) {
-    const refs = ensureCashCard(driverId);
-    const log = pendingDeliveries(driverId);
-    const cashStart = Store.getCashStarts().get(driverId) || 0;
-    const gastos = cashExpensesForDriver(driverId);
-    let cashMethodsTotal = 0;
-
-    refs.nameEl.textContent = `${driverLabel(driverId)} (${log.length} sin rendir)`;
-    let ventasTotal = 0;
-    formConfig.paymentMethods.forEach((m) => {
-      const cell = sumBy(log, (e) => e.paymentMethod === m.name);
-      const el = refs.methodCells.get(m.id);
-      if (el) el.textContent = fmtCell(cell);
-      if (m.isCash) cashMethodsTotal += cell.total;
-      ventasTotal += cell.total;
-    });
-    if (refs.ventasValueEl) refs.ventasValueEl.textContent = `$${ventasTotal.toFixed(2)}`;
-    if (refs.gastosValueEl) refs.gastosValueEl.textContent = gastos > 0 ? `-$${gastos.toFixed(2)}` : '$0.00';
-
-    const debe = cashMethodsTotal + cashStart - gastos;
-    if (refs.totalValueEl) refs.totalValueEl.textContent = `$${debe.toFixed(2)}`;
-    if (refs.cambioInput && document.activeElement !== refs.cambioInput) refs.cambioInput.value = cashStart || '';
-  }
-
-  function renderAssignedAndCashCards() {
+  function renderAssignedCards() {
     const assignedDriverIds = new Set(Array.from(Store.getOrders().values()).map((o) => o.assignedTo).filter(Boolean));
     const driverIds = new Set([...assignedDriverIds, ...Store.getDrivers().keys()]);
 
     assignedEmptyEl.hidden = driverIds.size > 0;
-    cashEmptyEl.hidden = driverIds.size > 0;
 
     if (driverIds.size === 0) {
       assignedCards.forEach((refs) => refs.card.remove());
       assignedCards.clear();
-      cashCards.forEach((refs) => refs.card.remove());
-      cashCards.clear();
       return;
     }
 
     assignedCards.forEach((refs, driverId) => {
       if (!driverIds.has(driverId)) { refs.card.remove(); assignedCards.delete(driverId); }
     });
-    cashCards.forEach((refs, driverId) => {
-      if (!driverIds.has(driverId)) { refs.card.remove(); cashCards.delete(driverId); }
-    });
 
     driverIds.forEach((driverId) => {
-      const aRefs = ensureAssignedCard(driverId);
-      if (!aRefs.card.isConnected) assignedCardsEl.appendChild(aRefs.card);
+      const refs = ensureAssignedCard(driverId);
+      if (!refs.card.isConnected) assignedCardsEl.appendChild(refs.card);
       updateAssignedCard(driverId);
-      const cRefs = ensureCashCard(driverId);
-      if (!cRefs.card.isConnected) cashCardsEl.appendChild(cRefs.card);
-      updateCashCard(driverId);
     });
   }
 
-  function rebuildCashCardsForNewFormConfig() {
-    cashCards.forEach((refs, driverId) => buildCashStatCells(driverId, refs));
-    renderAssignedAndCashCards();
-  }
-
-  mapPanel.onChange(renderAssignedAndCashCards);
-
-  const onCashStartsSnapshot = () => renderAssignedAndCashCards();
-  const onDriverCashStart = (e) => {
-    if (cashCards.has(e.detail.driverId)) updateCashCard(e.detail.driverId);
-  };
-  const onExpensesSnapshot = () => renderAssignedAndCashCards();
+  mapPanel.onChange(renderAssignedCards);
 
   const onFormConfigSnapshot = (e) => {
     formConfig = e.detail || {};
     if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
     renderHeader();
     renderOrders();
-    rebuildCashCardsForNewFormConfig();
   };
   const onDriversSnapshot = (e) => {
     (e.detail || []).forEach((d) => knownDriverNames.set(d.id, d.name));
@@ -941,9 +790,6 @@ async function mount(root) {
   Store.on('order:update', onOrderUpdate);
   Store.on('order:remove', onOrderRemove);
   Store.on('separators:snapshot', onSeparatorsSnapshot);
-  Store.on('cash-starts:snapshot', onCashStartsSnapshot);
-  Store.on('driver:cash-start', onDriverCashStart);
-  Store.on('expenses:snapshot', onExpensesSnapshot);
 
   const unsubscribe = () => {
     Store.off('form-config:snapshot', onFormConfigSnapshot);
@@ -954,9 +800,6 @@ async function mount(root) {
     Store.off('order:update', onOrderUpdate);
     Store.off('order:remove', onOrderRemove);
     Store.off('separators:snapshot', onSeparatorsSnapshot);
-    Store.off('cash-starts:snapshot', onCashStartsSnapshot);
-    Store.off('driver:cash-start', onDriverCashStart);
-    Store.off('expenses:snapshot', onExpensesSnapshot);
     // Si se navega a otra pestaña con el modal de "Nuevo pedido" todavía
     // abierto, no dejar sus propias suscripciones a Store colgadas.
     if (newOrderFormMounted) unmountNewOrderForm();
@@ -965,7 +808,7 @@ async function mount(root) {
   active = { mapPanel, unsubscribe, teardownDriverLabel };
   renderHeader();
   renderOrders();
-  renderAssignedAndCashCards();
+  renderAssignedCards();
 }
 
 function unmount() {

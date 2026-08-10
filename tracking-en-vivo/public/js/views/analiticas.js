@@ -1,6 +1,17 @@
 import { Store } from '/js/store.js';
 import { Router } from '/js/router.js';
+import { createDriverLabel } from '/js/driver-label.js';
+import { template as proveedoresTemplate, mount as mountProveedores, unmount as unmountProveedores } from '/js/views/proveedores.js';
 
+// "Día Comercial" agrupa todo lo administrativo del día: abrir/cerrar caja
+// con su desglose en vivo, los gastos a proveedores (antes una pestaña
+// aparte, ver proveedores.js -- se embebe tal cual, mount()/unmount()
+// reusan el mismo root así no hace falta duplicar su lógica) y el desglose
+// de dinero por delivery (antes vivía en Pedidos -- ver pedidos.js, que
+// ahora se queda solo con lo operativo: pedidos, asignación, rutas). Las
+// estadísticas/historial/exportación viven aparte, en "Análisis de datos"
+// (ver analisis-datos.js) -- esta pantalla es para operar el día de hoy,
+// no para mirar para atrás.
 const template = `
 <main class="wide">
   <section class="panel">
@@ -37,46 +48,17 @@ const template = `
     <p id="day-status-msg" class="status"></p>
   </section>
 
-  <section class="panel">
-    <h2>Historial diario</h2>
-    <p class="hint">Se guarda al tocar "Finalizar día" — cada fila queda fija, no cambia aunque edites pedidos después. "Diferencia" es efectivo contado menos efectivo esperado (inicial + lo cobrado en efectivo). Tocá una fila para ver los pedidos de ese día.</p>
-    <div id="daily-chart"></div>
-    <div class="table-scroll">
-      <table class="order-table">
-        <thead>
-          <tr><th>Fecha</th><th>Pedidos</th><th>Ingresos</th><th>Efvo. esperado</th><th>Efvo. contado</th><th>Diferencia</th></tr>
-        </thead>
-        <tbody id="daily-tbody"></tbody>
-      </table>
-    </div>
-  </section>
+  ${proveedoresTemplate}
 
-  <section class="panel">
-    <h2>Resumen mensual</h2>
-    <div class="table-scroll">
-      <table class="order-table">
-        <thead>
-          <tr><th>Mes</th><th>Pedidos</th><th>Ingresos</th></tr>
-        </thead>
-        <tbody id="monthly-tbody"></tbody>
-      </table>
+  <section class="panel collapsible-panel" id="cash-panel">
+    <div class="collapsible-header">
+      <h2 style="margin:0;">Desglose de dinero</h2>
+      <button id="cash-toggle-btn" type="button" class="small" title="Minimizar">▾</button>
     </div>
-  </section>
-
-  <section class="panel">
-    <h2>Exportar</h2>
-    <p class="hint">Para contabilidad, o como respaldo manual además de lo que guarda Supabase — ver "Backup y recuperación" en la documentación.</p>
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <a href="/api/export/orders.csv" class="primary" style="width:auto; padding:14px 20px; border-radius:var(--radius-md);">Descargar pedidos (CSV)</a>
-      <a href="/api/export/business-days.csv" class="primary" style="width:auto; padding:14px 20px; border-radius:var(--radius-md);">Descargar días comerciales (CSV)</a>
+    <div class="collapsible-body">
+      <p id="cash-empty" class="hint" hidden>Todavía no hay entregas registradas.</p>
+      <div id="cash-cards"></div>
     </div>
-  </section>
-
-  <section class="panel">
-    <h2>Zona de pruebas</h2>
-    <p class="hint"><strong>Borra TODO</strong>: todos los pedidos (activos y ya archivados) y todos los días comerciales (abiertos y ya cerrados, con su historial). Preventivo para pruebas — no queda nada, ni siquiera el historial real, así que solo tocalo si estás probando la app y querés arrancar de cero.</p>
-    <button id="reset-today-btn" type="button" class="danger" style="width:auto;">Borrar TODO (pedidos y días)</button>
-    <p id="reset-status" class="status"></p>
   </section>
 </main>
 `;
@@ -97,30 +79,42 @@ function mount(root) {
   const cbVentasEfectivoEl = root.querySelector('#cb-ventas-efectivo');
   const cbGastosEl = root.querySelector('#cb-gastos');
   const cbEsperadoEl = root.querySelector('#cb-esperado');
-  const dailyChartEl = root.querySelector('#daily-chart');
-  const dailyTbodyEl = root.querySelector('#daily-tbody');
-  const monthlyTbodyEl = root.querySelector('#monthly-tbody');
-  const resetTodayBtn = root.querySelector('#reset-today-btn');
-  const resetStatusEl = root.querySelector('#reset-status');
+  const cashPanelEl = root.querySelector('#cash-panel');
+  const cashToggleBtn = root.querySelector('#cash-toggle-btn');
+  const cashCardsEl = root.querySelector('#cash-cards');
+  const cashEmptyEl = root.querySelector('#cash-empty');
+
+  mountProveedores(root);
+
+  let cashCollapsed = false;
+  cashToggleBtn.addEventListener('click', () => {
+    cashCollapsed = !cashCollapsed;
+    cashPanelEl.classList.toggle('collapsed', cashCollapsed);
+    cashToggleBtn.textContent = cashCollapsed ? '▸' : '▾';
+    cashToggleBtn.title = cashCollapsed ? 'Mostrar desglose de dinero' : 'Minimizar';
+  });
 
   MoneyCounter.attach(cashStartEl);
   MoneyCounter.attach(cashEndEl);
 
   let currentDay = Store.getBusinessDay();
-  let allDays = []; // último historial recibido, solo para el conteo del botón "Borrar TODO"
   let formConfig = Store.getFormConfig();
+  if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
+
+  const socket = Store.socket;
+  const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();
 
   function fmtMoney(n) {
     return `$${(n || 0).toFixed(2)}`;
   }
 
+  function fmtDateTime(iso) {
+    return new Date(iso).toLocaleString('es-UY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
   function fmtDate(dateStr) {
     const [y, m, d] = dateStr.split('-');
     return `${d}/${m}/${y}`;
-  }
-
-  function fmtDateTime(iso) {
-    return new Date(iso).toLocaleString('es-UY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
   function isCashPayment(paymentMethod) {
@@ -129,11 +123,12 @@ function mount(root) {
     return !!(method && method.isCash);
   }
 
-  // Mismo espíritu que el desglose por delivery en dashboard.js (Cambio
-  // inicial + Ventas + Gastos = Total), pero a nivel de todo el día — para que
-  // el admin vea en vivo hacia dónde va la caja, no recién al tocar "Finalizar
-  // día". `cashStartOverride` se usa al validar el cierre (compara contra lo
-  // que se está por mandar, no contra lo último persistido).
+  // Mismo espíritu que el desglose por delivery de más abajo (Cambio
+  // inicial + Ventas + Gastos = Total), pero a nivel de todo el día — para
+  // que el admin vea en vivo hacia dónde va la caja, no recién al tocar
+  // "Finalizar día". `cashStartOverride` se usa al validar el cierre
+  // (compara contra lo que se está por mandar, no contra lo último
+  // persistido).
   function computeCashBreakdown(cashStartOverride) {
     const cashStart = cashStartOverride != null ? cashStartOverride : ((currentDay && currentDay.cash_start) || 0);
     let ventasTotales = 0;
@@ -205,186 +200,6 @@ function mount(root) {
     }, 600);
   });
 
-  function renderDailyChart(days) {
-    dailyChartEl.innerHTML = '';
-    const closed = days.filter((d) => d.ended_at).slice(0, 14).reverse();
-    if (closed.length === 0) return;
-    const max = Math.max(...closed.map((d) => d.total_revenue || 0), 1);
-    const wrap = document.createElement('div');
-    wrap.style.display = 'flex';
-    wrap.style.alignItems = 'flex-end';
-    wrap.style.gap = '6px';
-    wrap.style.height = '140px';
-    wrap.style.marginBottom = '16px';
-    closed.forEach((d) => {
-      const col = document.createElement('div');
-      col.style.display = 'flex';
-      col.style.flexDirection = 'column';
-      col.style.alignItems = 'center';
-      col.style.flex = '1';
-      col.style.height = '100%';
-      col.style.justifyContent = 'flex-end';
-      col.title = `${fmtDate(d.date)}: ${d.total_orders} pedidos, ${fmtMoney(d.total_revenue)}`;
-
-      const bar = document.createElement('div');
-      const heightPct = Math.max(2, ((d.total_revenue || 0) / max) * 100);
-      bar.style.width = '100%';
-      bar.style.height = `${heightPct}%`;
-      bar.style.background = 'var(--primary)';
-      bar.style.borderRadius = 'var(--radius-sm) var(--radius-sm) 0 0';
-
-      const label = document.createElement('span');
-      label.style.fontSize = '0.7rem';
-      label.style.color = 'var(--muted)';
-      label.style.marginTop = '4px';
-      label.style.whiteSpace = 'nowrap';
-      label.textContent = fmtDate(d.date).slice(0, 5);
-
-      col.append(bar, label);
-      wrap.appendChild(col);
-    });
-    dailyChartEl.appendChild(wrap);
-  }
-
-  const DAILY_COLSPAN = 6;
-  const PAYMENT_LABEL = (p) => p || 'Sin especificar';
-
-  function renderOrderDetailTable(dayOrders) {
-    if (dayOrders.length === 0) return document.createTextNode('Sin pedidos ese día.');
-    const table = document.createElement('table');
-    table.className = 'order-table';
-    table.style.marginTop = '8px';
-    const thead = document.createElement('thead');
-    thead.innerHTML = '<tr><th>Nº pedido</th><th>Teléfono</th><th>Nombre</th><th>Monto</th><th>Método de pago</th><th>Estado</th></tr>';
-    const tbody = document.createElement('tbody');
-    dayOrders.forEach((o) => {
-      const tr = document.createElement('tr');
-      const cells = [
-        o.order_number || '',
-        o.phone || '',
-        o.name || '',
-        o.amount != null ? fmtMoney(o.amount) : '',
-        PAYMENT_LABEL(o.payment_method),
-        o.status || '',
-      ];
-      cells.forEach((text) => {
-        const td = document.createElement('td');
-        td.textContent = text;
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
-    });
-    table.append(thead, tbody);
-    return table;
-  }
-
-  async function toggleDayDetail(day, row) {
-    const existing = row.nextElementSibling;
-    if (existing && existing.dataset.detailFor === day.id) {
-      existing.remove();
-      return;
-    }
-    dailyTbodyEl.querySelectorAll('tr[data-detail-for]').forEach((tr) => tr.remove());
-
-    const detailRow = document.createElement('tr');
-    detailRow.dataset.detailFor = day.id;
-    const td = document.createElement('td');
-    td.colSpan = DAILY_COLSPAN;
-    td.textContent = 'Cargando...';
-    td.className = 'hint';
-    detailRow.appendChild(td);
-    row.after(detailRow);
-
-    try {
-      const { orders: dayOrders } = await api(`/api/business-day/${day.id}/orders`);
-      td.textContent = '';
-      td.className = '';
-      td.appendChild(renderOrderDetailTable(dayOrders));
-    } catch (e) {
-      td.textContent = e.message;
-      td.className = 'hint';
-    }
-  }
-
-  function renderDailyTable(days) {
-    dailyTbodyEl.innerHTML = '';
-    days.filter((d) => d.ended_at).forEach((d) => {
-      const tr = document.createElement('tr');
-      tr.style.cursor = 'pointer';
-      tr.title = 'Ver los pedidos de este día';
-      const tdDate = document.createElement('td'); tdDate.textContent = fmtDate(d.date);
-      const tdOrders = document.createElement('td'); tdOrders.textContent = d.total_orders || 0;
-      const tdRevenue = document.createElement('td'); tdRevenue.textContent = fmtMoney(d.total_revenue);
-      const tdCashExpected = document.createElement('td'); tdCashExpected.textContent = d.cash_expected != null ? fmtMoney(d.cash_expected) : '—';
-      const tdCashEnd = document.createElement('td'); tdCashEnd.textContent = d.cash_end != null ? fmtMoney(d.cash_end) : '—';
-      const tdDiff = document.createElement('td');
-      if (d.cash_end != null && d.cash_expected != null) {
-        const diff = d.cash_end - d.cash_expected;
-        tdDiff.textContent = `${diff >= 0 ? '+' : ''}${fmtMoney(diff)}`;
-        tdDiff.style.color = Math.abs(diff) < 0.01 ? 'var(--ok)' : 'var(--danger)';
-      } else {
-        tdDiff.textContent = '—';
-      }
-      tr.append(tdDate, tdOrders, tdRevenue, tdCashExpected, tdCashEnd, tdDiff);
-      tr.addEventListener('click', () => toggleDayDetail(d, tr));
-      dailyTbodyEl.appendChild(tr);
-    });
-    if (dailyTbodyEl.children.length === 0) {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      td.colSpan = DAILY_COLSPAN;
-      td.className = 'hint';
-      td.textContent = 'Todavía no cerraste ningún día.';
-      tr.appendChild(td);
-      dailyTbodyEl.appendChild(tr);
-    }
-  }
-
-  function renderMonthlyTable(days) {
-    monthlyTbodyEl.innerHTML = '';
-    const byMonth = new Map(); // "YYYY-MM" -> { orders, revenue }
-    days.filter((d) => d.ended_at).forEach((d) => {
-      const month = d.date.slice(0, 7);
-      const acc = byMonth.get(month) || { orders: 0, revenue: 0 };
-      acc.orders += d.total_orders || 0;
-      acc.revenue += d.total_revenue || 0;
-      byMonth.set(month, acc);
-    });
-    const months = Array.from(byMonth.keys()).sort().reverse();
-    months.forEach((month) => {
-      const acc = byMonth.get(month);
-      const [y, m] = month.split('-');
-      const tr = document.createElement('tr');
-      const tdMonth = document.createElement('td'); tdMonth.textContent = `${m}/${y}`;
-      const tdOrders = document.createElement('td'); tdOrders.textContent = acc.orders;
-      const tdRevenue = document.createElement('td'); tdRevenue.textContent = fmtMoney(acc.revenue);
-      tr.append(tdMonth, tdOrders, tdRevenue);
-      monthlyTbodyEl.appendChild(tr);
-    });
-    if (months.length === 0) {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      td.colSpan = 3;
-      td.className = 'hint';
-      td.textContent = 'Todavía no hay ningún mes con datos.';
-      tr.appendChild(td);
-      monthlyTbodyEl.appendChild(tr);
-    }
-  }
-
-  async function loadHistory() {
-    try {
-      const { days } = await api('/api/business-days');
-      allDays = days;
-      renderDailyChart(days);
-      renderDailyTable(days);
-      renderMonthlyTable(days);
-    } catch (e) {
-      dayStatusMsgEl.textContent = e.message;
-      dayStatusMsgEl.className = 'status error';
-    }
-  }
-
   async function loadCurrentDay() {
     try {
       const { day } = await api('/api/business-day/current');
@@ -455,7 +270,6 @@ function mount(root) {
       dayStatusMsgEl.className = 'status ok';
       cashStartEl.value = '';
       cashEndEl.value = '';
-      loadHistory();
     } catch (e) {
       dayStatusMsgEl.textContent = e.message;
       dayStatusMsgEl.className = 'status error';
@@ -463,45 +277,195 @@ function mount(root) {
     }
   });
 
-  resetTodayBtn.addEventListener('click', async () => {
-    const orders = Store.getOrders();
-    const closedDaysCount = allDays.filter((d) => d.ended_at).length;
-    const msg = `¿BORRAR TODO? Esto incluye:\n- ${orders.size} pedido${orders.size === 1 ? '' : 's'} en total (activos y ya archivados)\n- ${closedDaysCount} día${closedDaysCount === 1 ? '' : 's'} cerrado${closedDaysCount === 1 ? '' : 's'} con su historial${currentDay ? '\n- el día que está abierto ahora' : ''}\n\nNO SE PUEDE DESHACER. Esto es historial real, no solo pedidos de hoy — usalo solo si estás probando la app.`;
-    if (!confirm(msg)) return;
+  // ---------- Desglose de dinero por delivery ----------
+  // Portado tal cual desde pedidos.js (donde vivía junto con "Deliverys
+  // activos y pedidos asignados", que se queda allá) — cambio inicial
+  // editable, total por método de pago, ventas totales, gastos asignados,
+  // total a entregar, "Cerrar rendición". Acá no hay un mapa cuyo
+  // onChange() reusar, así que reacciona directo a orders:snapshot/
+  // drivers:snapshot y sus variantes puntuales.
+  const cashCards = new Map(); // driverId -> refs
 
-    resetTodayBtn.disabled = true;
-    resetStatusEl.textContent = '';
-    try {
-      const { deletedOrders } = await api('/api/admin/reset-today', { method: 'POST' });
-      resetStatusEl.textContent = `Se borraron ${deletedOrders} pedido${deletedOrders === 1 ? '' : 's'} y todo el historial de días.`;
-      resetStatusEl.className = 'status ok';
-      currentDay = null;
-      renderDayStatus();
-      loadHistory();
-    } catch (e) {
-      resetStatusEl.textContent = e.message;
-      resetStatusEl.className = 'status error';
+  function sumBy(list, predicate) {
+    const filtered = list.filter(predicate);
+    return { count: filtered.length, total: filtered.reduce((sum, e) => sum + (e.amount || 0), 0) };
+  }
+  function fmtCell({ count, total }) {
+    return `${count} — $${total.toFixed(2)}`;
+  }
+  function pendingDeliveries(driverId) {
+    return Array.from(Store.getOrders().values()).filter((o) => o.assignedTo === driverId && o.status === 'entregado' && !o.reconciledAt);
+  }
+  function cashExpensesForDriver(driverId) {
+    return Array.from(Store.getExpenses().values()).filter((e) => e.driverId === driverId).reduce((sum, e) => sum + (e.amount || 0), 0);
+  }
+
+  function statCell(container, labelText) {
+    const wrap = document.createElement('div');
+    wrap.className = 'driver-stat';
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    wrap.appendChild(label);
+    container.appendChild(wrap);
+    return wrap;
+  }
+
+  function buildCashStatCells(driverId, refs) {
+    refs.statsEl.innerHTML = '';
+    refs.methodCells.clear();
+
+    const cambioWrap = statCell(refs.statsEl, 'Cambio inicial');
+    const cambioInput = document.createElement('input');
+    cambioInput.type = 'text';
+    cambioInput.placeholder = '$ 0,00';
+    cambioInput.addEventListener('input', () => {
+      const amount = Geo.parseAmount(cambioInput.value) || 0;
+      socket.emit('driver:cash-start', { driverId, amount });
+      updateCashCard(driverId);
+    });
+    cambioWrap.appendChild(cambioInput);
+    MoneyCounter.attach(cambioInput);
+    refs.cambioInput = cambioInput;
+
+    formConfig.paymentMethods.forEach((m) => {
+      const wrap = statCell(refs.statsEl, m.name);
+      const valueEl = document.createElement('span');
+      valueEl.className = 'value';
+      wrap.appendChild(valueEl);
+      refs.methodCells.set(m.id, valueEl);
+    });
+
+    const ventasWrap = statCell(refs.statsEl, 'Ventas totales');
+    const ventasValueEl = document.createElement('span');
+    ventasValueEl.className = 'value';
+    ventasWrap.appendChild(ventasValueEl);
+    refs.ventasValueEl = ventasValueEl;
+
+    const gastosWrap = statCell(refs.statsEl, 'Gastos asignados');
+    const gastosValueEl = document.createElement('span');
+    gastosValueEl.className = 'value';
+    gastosWrap.appendChild(gastosValueEl);
+    refs.gastosValueEl = gastosValueEl;
+
+    const totalWrap = statCell(refs.statsEl, 'Total a entregar');
+    const totalValueEl = document.createElement('strong');
+    totalWrap.appendChild(totalValueEl);
+    refs.totalValueEl = totalValueEl;
+  }
+
+  function ensureCashCard(driverId) {
+    const existing = cashCards.get(driverId);
+    if (existing) return existing;
+    const card = document.createElement('div');
+    card.className = 'panel driver-card';
+    const header = document.createElement('div');
+    header.className = 'driver-card-header';
+    const nameEl = document.createElement('strong');
+    header.appendChild(nameEl);
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'danger small';
+    clearBtn.textContent = 'Cerrar rendición';
+    clearBtn.addEventListener('click', () => {
+      socket.emit('driver:clear-log', { driverId });
+      socket.emit('driver:cash-start', { driverId, amount: 0 });
+      updateCashCard(driverId);
+    });
+    header.appendChild(clearBtn);
+    card.appendChild(header);
+    const statsEl = document.createElement('div');
+    statsEl.className = 'driver-card-stats';
+    card.appendChild(statsEl);
+    cashCardsEl.appendChild(card);
+    const refs = { card, nameEl, statsEl, methodCells: new Map() };
+    cashCards.set(driverId, refs);
+    buildCashStatCells(driverId, refs);
+    return refs;
+  }
+
+  function updateCashCard(driverId) {
+    const refs = ensureCashCard(driverId);
+    const log = pendingDeliveries(driverId);
+    const cashStart = Store.getCashStarts().get(driverId) || 0;
+    const gastos = cashExpensesForDriver(driverId);
+    let cashMethodsTotal = 0;
+
+    refs.nameEl.textContent = `${driverLabel(driverId)} (${log.length} sin rendir)`;
+    let ventasTotal = 0;
+    formConfig.paymentMethods.forEach((m) => {
+      const cell = sumBy(log, (e) => e.paymentMethod === m.name);
+      const el = refs.methodCells.get(m.id);
+      if (el) el.textContent = fmtCell(cell);
+      if (m.isCash) cashMethodsTotal += cell.total;
+      ventasTotal += cell.total;
+    });
+    if (refs.ventasValueEl) refs.ventasValueEl.textContent = `$${ventasTotal.toFixed(2)}`;
+    if (refs.gastosValueEl) refs.gastosValueEl.textContent = gastos > 0 ? `-$${gastos.toFixed(2)}` : '$0.00';
+
+    const debe = cashMethodsTotal + cashStart - gastos;
+    if (refs.totalValueEl) refs.totalValueEl.textContent = `$${debe.toFixed(2)}`;
+    if (refs.cambioInput && document.activeElement !== refs.cambioInput) refs.cambioInput.value = cashStart || '';
+  }
+
+  function renderCashCards() {
+    const assignedDriverIds = new Set(Array.from(Store.getOrders().values()).map((o) => o.assignedTo).filter(Boolean));
+    const driverIds = new Set([...assignedDriverIds, ...Store.getDrivers().keys()]);
+
+    cashEmptyEl.hidden = driverIds.size > 0;
+
+    if (driverIds.size === 0) {
+      cashCards.forEach((refs) => refs.card.remove());
+      cashCards.clear();
+      return;
     }
-    resetTodayBtn.disabled = false;
-  });
+
+    cashCards.forEach((refs, driverId) => {
+      if (!driverIds.has(driverId)) { refs.card.remove(); cashCards.delete(driverId); }
+    });
+
+    driverIds.forEach((driverId) => {
+      const refs = ensureCashCard(driverId);
+      if (!refs.card.isConnected) cashCardsEl.appendChild(refs.card);
+      updateCashCard(driverId);
+    });
+  }
+
+  function rebuildCashCardsForNewFormConfig() {
+    cashCards.forEach((refs, driverId) => buildCashStatCells(driverId, refs));
+    renderCashCards();
+  }
 
   const onDayStatus = (e) => {
     currentDay = e.detail.day;
     renderDayStatus();
   };
-  const onOrdersChange = () => renderCashBreakdown();
-  const onExpensesSnapshot = () => renderCashBreakdown();
+  const onOrdersChange = () => { renderCashBreakdown(); renderCashCards(); };
+  const onExpensesSnapshot = () => { renderCashBreakdown(); renderCashCards(); };
   const onFormConfigSnapshot = (e) => {
     formConfig = e.detail || { paymentMethods: [] };
     if (!Array.isArray(formConfig.paymentMethods)) formConfig.paymentMethods = [];
     renderCashBreakdown();
+    rebuildCashCardsForNewFormConfig();
   };
+  const onDriversSnapshot = () => renderCashCards();
+  const onDriverUpdate = () => renderCashCards();
+  const onDriverRemove = () => renderCashCards();
+  const onCashStartsSnapshot = () => renderCashCards();
+  const onDriverCashStart = (e) => {
+    if (cashCards.has(e.detail.driverId)) updateCashCard(e.detail.driverId);
+  };
+
   Store.on('business-day:status', onDayStatus);
   Store.on('orders:snapshot', onOrdersChange);
   Store.on('order:update', onOrdersChange);
   Store.on('order:remove', onOrdersChange);
   Store.on('expenses:snapshot', onExpensesSnapshot);
   Store.on('form-config:snapshot', onFormConfigSnapshot);
+  Store.on('drivers:snapshot', onDriversSnapshot);
+  Store.on('driver:update', onDriverUpdate);
+  Store.on('driver:remove', onDriverRemove);
+  Store.on('cash-starts:snapshot', onCashStartsSnapshot);
+  Store.on('driver:cash-start', onDriverCashStart);
 
   unsubscribe = () => {
     Store.off('business-day:status', onDayStatus);
@@ -510,11 +474,18 @@ function mount(root) {
     Store.off('order:remove', onOrdersChange);
     Store.off('expenses:snapshot', onExpensesSnapshot);
     Store.off('form-config:snapshot', onFormConfigSnapshot);
+    Store.off('drivers:snapshot', onDriversSnapshot);
+    Store.off('driver:update', onDriverUpdate);
+    Store.off('driver:remove', onDriverRemove);
+    Store.off('cash-starts:snapshot', onCashStartsSnapshot);
+    Store.off('driver:cash-start', onDriverCashStart);
     clearTimeout(cashStartSaveTimer);
+    teardownDriverLabel();
+    unmountProveedores();
   };
 
   loadCurrentDay();
-  loadHistory();
+  renderCashCards();
 }
 
 function unmount() {
@@ -523,7 +494,7 @@ function unmount() {
 }
 
 Router.register('/analiticas.html', {
-  title: 'Analíticas — Deliverys en vivo',
+  title: 'Día Comercial — Deliverys en vivo',
   wide: true,
   template,
   mount,

@@ -42,7 +42,7 @@ function verifyToken(token) {
 // login.html itself stay public. The real security boundary is the socket
 // handler checks below (socket.data.isAdmin), this is just so an anonymous
 // visitor lands on the login screen instead of a blank admin page.
-const PROTECTED_PAGES = ['/pedidos.html', '/dashboard.html', '/analiticas.html', '/catalogo.html', '/proveedores.html'];
+const PROTECTED_PAGES = ['/pedidos.html', '/dashboard.html', '/analiticas.html', '/catalogo.html', '/proveedores.html', '/analisis-datos.html'];
 
 app.use((req, res, next) => {
   if (!AUTH_DISABLED && PROTECTED_PAGES.includes(req.path) && !verifyToken(getToken(req))) {
