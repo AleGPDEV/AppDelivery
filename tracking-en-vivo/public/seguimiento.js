@@ -61,11 +61,47 @@ const msgEl = document.getElementById('track-status-msg');
 const orderNumEl = document.getElementById('track-order-number');
 const mapWrapEl = document.getElementById('track-map-wrap');
 const mapHintEl = document.getElementById('track-map-hint');
+const freshnessEl = document.getElementById('track-driver-freshness');
+
+// Sin esto, el pin del delivery se queda quieto en la última posición
+// conocida sin ningún aviso si dejó de compartir ubicación (cerró la
+// pestaña, se le apagó el celular, perdió señal) -- el cliente no tiene
+// forma de saber si "no se mueve" significa "está parado" o "dejó de
+// actualizar". STALE_MS bastante por encima del intervalo normal de GPS
+// (cada pocos segundos, ver driver.js) para no marcar falso positivo por
+// una demora momentánea de red.
+const STALE_MS = 90 * 1000;
+let lastDriverUpdateAt = null;
+let freshnessInterval = null;
+
+function timeAgoLabel(ms) {
+  const seconds = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (seconds < 60) return `hace ${seconds}s`;
+  return `hace ${Math.round(seconds / 60)} min`;
+}
+
+function updateFreshness() {
+  if (lastDriverUpdateAt == null) return;
+  const stale = Date.now() - lastDriverUpdateAt > STALE_MS;
+  freshnessEl.textContent = stale
+    ? `⚠️ El delivery no actualiza su ubicación ${timeAgoLabel(lastDriverUpdateAt)} -- puede haber perdido señal.`
+    : `Última actualización ${timeAgoLabel(lastDriverUpdateAt)}.`;
+  freshnessEl.classList.toggle('track-map-hint-warning', stale);
+  freshnessEl.style.display = '';
+}
+
+function stopFreshnessTicker() {
+  if (freshnessInterval) { clearInterval(freshnessInterval); freshnessInterval = null; }
+  lastDriverUpdateAt = null;
+  freshnessEl.style.display = 'none';
+  freshnessEl.classList.remove('track-map-hint-warning');
+}
 
 function showError(title, msg) {
   titleEl.textContent = title;
   msgEl.textContent = msg;
   mapWrapEl.style.display = 'none';
+  stopFreshnessTicker();
 }
 
 const orderId = new URLSearchParams(location.search).get('id');
@@ -148,6 +184,10 @@ if (!orderId) {
     else api.driverMarker = new api.maps.Marker({ position, map: api.map, icon: svgIcon(api.maps, '#2563eb', '🛵', 44, 'circle'), zIndex: 10 });
     fitBoundsIfNeeded(api);
     mapHintEl.style.display = 'none';
+
+    lastDriverUpdateAt = Date.now();
+    updateFreshness();
+    if (!freshnessInterval) freshnessInterval = setInterval(updateFreshness, 5000);
   }
 
   function render(o) {
@@ -158,12 +198,14 @@ if (!orderId) {
       titleEl.textContent = '✅ Tu pedido fue entregado';
       msgEl.textContent = '¡Buen provecho!';
       mapWrapEl.style.display = 'none';
+      stopFreshnessTicker();
       return;
     }
     if (o.pickup) {
       titleEl.textContent = '🍳 Tu pedido se está preparando';
       msgEl.textContent = 'Te esperamos para que lo retires en el local.';
       mapWrapEl.style.display = 'none';
+      stopFreshnessTicker();
       return;
     }
 
@@ -175,6 +217,7 @@ if (!orderId) {
       msgEl.textContent = 'En breve lo despachamos con un delivery.';
       mapHintEl.textContent = 'Todavía no salió -- acá vas a ver a tu delivery en vivo apenas salga.';
       mapHintEl.style.display = '';
+      stopFreshnessTicker();
     } else {
       titleEl.textContent = '🛵 Tu pedido está en camino';
       msgEl.textContent = '';

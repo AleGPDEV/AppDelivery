@@ -130,6 +130,7 @@ function teardownActive() {
   active.mapPanel.teardown();
   active.unsubscribe();
   active.teardownDriverLabel();
+  clearInterval(active.freshnessIntervalId);
   active = null;
 }
 
@@ -758,6 +759,16 @@ async function mount(root) {
     header.className = 'driver-card-header';
     const nameEl = document.createElement('strong');
     header.appendChild(nameEl);
+    // Un delivery puede dejar de mandar ubicación (cerró la app, se le
+    // apagó el celular, perdió señal) sin desconectarse del todo -- el
+    // servidor recién lo saca de Store.getDrivers() a los 5 min sin pings
+    // (STALE_MS en server.js). Sin esto, la tarjeta lo sigue mostrando
+    // "conectado" con su última posición sin ningún aviso de que hace rato
+    // no actualiza -- mismo problema que se resolvió del lado del cliente
+    // en seguimiento.js.
+    const freshnessEl = document.createElement('span');
+    freshnessEl.className = 'driver-card-freshness';
+    header.appendChild(freshnessEl);
     card.appendChild(header);
     const ordersSection = document.createElement('div');
     ordersSection.className = 'driver-card-orders';
@@ -765,15 +776,33 @@ async function mount(root) {
     ordersSection.appendChild(ordersList);
     card.appendChild(ordersSection);
     assignedCardsEl.appendChild(card);
-    const refs = { card, nameEl, ordersList };
+    const refs = { card, nameEl, freshnessEl, ordersList };
     assignedCards.set(driverId, refs);
     return refs;
   }
+
+  // Mismo umbral que seguimiento.js -- bastante por encima del intervalo
+  // normal de GPS (cada pocos segundos) para no marcar falso positivo por
+  // una demora momentánea de red.
+  const DRIVER_STALE_MS = 90 * 1000;
 
   function updateAssignedCard(driverId) {
     const refs = ensureAssignedCard(driverId);
     const pending = assignedActiveOrders(driverId);
     refs.nameEl.textContent = `${driverLabel(driverId)} (${pending.length} sin entregar)`;
+
+    const d = Store.getDrivers().get(driverId);
+    if (!d) {
+      refs.freshnessEl.textContent = '';
+      refs.freshnessEl.classList.remove('driver-card-freshness-warning');
+    } else {
+      const seconds = Math.max(0, Math.round((Date.now() - d.updatedAt) / 1000));
+      const label = seconds < 60 ? `hace ${seconds}s` : `hace ${Math.round(seconds / 60)} min`;
+      const stale = Date.now() - d.updatedAt > DRIVER_STALE_MS;
+      refs.freshnessEl.textContent = stale ? `⚠️ sin actualizar ${label}` : `actualizado ${label}`;
+      refs.freshnessEl.classList.toggle('driver-card-freshness-warning', stale);
+    }
+
     refs.ordersList.innerHTML = '';
     if (pending.length === 0) {
       const li = document.createElement('li');
@@ -869,7 +898,13 @@ async function mount(root) {
     if (newOrderFormMounted) unmountNewOrderForm();
   };
 
-  active = { mapPanel, unsubscribe, teardownDriverLabel };
+  // Las tarjetas solo se re-renderizan por eventos de Store (driver:update,
+  // etc.) -- un delivery que deja de mandar pings no dispara ningún evento
+  // nuevo, así que sin este tick propio el texto "actualizado hace Xs"
+  // quedaría congelado en vez de ir avisando que pasa el tiempo.
+  const freshnessIntervalId = setInterval(renderAssignedCards, 5000);
+
+  active = { mapPanel, unsubscribe, teardownDriverLabel, freshnessIntervalId };
   renderHeader();
   renderOrders();
   renderAssignedCards();
