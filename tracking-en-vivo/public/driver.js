@@ -420,19 +420,45 @@ function startSharing() {
   }
 
   localStorage.setItem(DRIVER_NAME_KEY, nameInput.value.trim());
-  localStorage.setItem(SHARING_KEY, '1');
 
-  watchId = navigator.geolocation.watchPosition(
-    sendPosition,
-    (err) => setStatus(`No se pudo obtener la ubicación: ${err.message}`, 'error'),
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-  );
-
-  toggleBtn.textContent = 'Dejar de compartir';
-  toggleBtn.classList.remove('primary');
-  toggleBtn.classList.add('danger');
+  // El botón/SHARING_KEY recién se confirman como "compartiendo" cuando
+  // llega la primera posición real -- antes quedaban en ese estado apenas
+  // se llamaba a watchPosition(), así que si el permiso estaba denegado (o
+  // no había señal) el botón decía "Dejar de compartir" mientras el status
+  // de abajo avisaba que había fallado -- estado contradictorio, y encima
+  // SHARING_KEY quedaba guardado, así que la próxima vez que el delivery
+  // abría la página reintentaba solo y volvía a fallar en silencio.
+  let gotFirstFix = false;
+  toggleBtn.disabled = true;
+  toggleBtn.textContent = 'Buscando ubicación...';
   nameInput.disabled = true;
   setStatus('Buscando tu ubicación...');
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      if (!gotFirstFix) {
+        gotFirstFix = true;
+        localStorage.setItem(SHARING_KEY, '1');
+        toggleBtn.disabled = false;
+        toggleBtn.textContent = 'Dejar de compartir';
+        toggleBtn.classList.remove('primary');
+        toggleBtn.classList.add('danger');
+      }
+      sendPosition(pos);
+    },
+    (err) => {
+      setStatus(`No se pudo obtener la ubicación: ${err.message}`, 'error');
+      if (!gotFirstFix) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        localStorage.removeItem(SHARING_KEY);
+        toggleBtn.disabled = false;
+        toggleBtn.textContent = 'Empezar a compartir ubicación';
+        nameInput.disabled = false;
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
 }
 
 function stopSharing() {

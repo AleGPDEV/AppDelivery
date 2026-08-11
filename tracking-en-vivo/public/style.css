@@ -863,6 +863,16 @@ button.small {
   transition: box-shadow 0.15s ease, transform 0.1s ease;
 }
 
+/* `display:flex` de arriba le gana al `display:none` del atributo `hidden`
+   (misma especificidad, pero un stylesheet de autor siempre le gana a la
+   hoja de estilos del navegador) -- sin esto, driver.js podía dejar el link
+   "Abrir ruta" visible y clickeable con href="#" cuando lo ocultaba
+   (`mapsLinkEl.hidden = true`) por no tener todavía la posición propia del
+   delivery. */
+.maps-button[hidden] {
+  display: none;
+}
+
 .maps-button:hover {
   box-shadow: var(--shadow-lg);
 }
