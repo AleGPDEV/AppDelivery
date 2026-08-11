@@ -1745,3 +1745,39 @@ header.hero > #theme-toggle-btn:hover {
   color: var(--danger);
   font-weight: 600;
 }
+
+/* Día Comercial: las tarjetas de "Día comercial / Desglose de caja /
+   Efectivo final" y "Gastos a proveedores / Proveedores" se acomodan en
+   fila en pantallas anchas y caen a una columna en angostas -- mismo
+   patrón responsive que .catalog-grid/.category-grid. */
+.day-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+/* Rendición por delivery (Desglose de dinero, Día Comercial): mismas
+   tarjetas .driver-card que "Deliverys activos" en Pedidos, pero acá con
+   menos aire -- a pedido explícito, para poder ver más rendiciones sin
+   scrollear tanto. Escopeado a #cash-cards para no afectar las tarjetas
+   de Pedidos. */
+#cash-cards {
+  gap: 10px;
+}
+
+#cash-cards .driver-card {
+  padding: 16px;
+}
+
+#cash-cards .driver-card-header {
+  margin-bottom: 8px;
+}
+
+#cash-cards .driver-card-stats {
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+#cash-cards .driver-card-orders {
+  margin-top: 10px;
+}

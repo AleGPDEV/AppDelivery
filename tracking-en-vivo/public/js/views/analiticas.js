@@ -14,22 +14,21 @@ import { template as proveedoresTemplate, mount as mountProveedores, unmount as 
 // no para mirar para atrás.
 const template = `
 <main class="wide">
-  <section class="panel">
-    <h2>Día comercial</h2>
-    <p id="day-status" class="driver-count">Cargando...</p>
+  <div class="day-cards-grid">
+    <section class="panel">
+      <h2>Día comercial</h2>
+      <p id="day-status" class="driver-count">Cargando...</p>
 
-    <div class="field">
-      <label for="cash-start">Efectivo inicial (con el que arrancó la caja)</label>
-      <input type="text" id="cash-start" placeholder="$ 2.000,00">
-    </div>
+      <div class="field">
+        <label for="cash-start">Efectivo inicial (con el que arrancó la caja)</label>
+        <input type="text" id="cash-start" placeholder="$ 2.000,00">
+      </div>
 
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <button id="start-day-btn" type="button" class="primary" style="width:auto;">Iniciar día</button>
-      <button id="end-day-btn" type="button" class="danger" style="width:auto;">Finalizar día</button>
-    </div>
+    </section>
 
-    <div id="cash-breakdown" style="display:none; margin-top:16px;">
-      <h3 style="margin-bottom:10px;">Desglose de caja (en vivo)</h3>
+    <section class="panel" id="cash-breakdown" style="display:none;">
+      <h3 style="margin-top:0;">Desglose de caja (en vivo)</h3>
       <div class="driver-card-stats">
         <div class="driver-stat"><label>Efectivo inicial</label><span class="value" id="cb-cash-start">$0.00</span></div>
         <div class="driver-stat"><label>Ventas totales</label><span class="value" id="cb-ventas-totales">$0.00</span></div>
@@ -38,17 +37,22 @@ const template = `
         <div class="driver-stat"><label>Efectivo esperado ahora</label><strong id="cb-esperado">$0.00</strong></div>
       </div>
       <p class="hint">Se va actualizando solo con cada venta y cada gasto — si al cerrar el día no cuadra, comparalo contra este desglose para ver en qué momento se desvió.</p>
-    </div>
+    </section>
 
-    <div id="cash-end-field" class="field" style="display:none; margin-top:14px;">
-      <label for="cash-end">Efectivo final (contado al cerrar)</label>
-      <input type="text" id="cash-end" placeholder="$ 15.000,00">
-    </div>
+    <section class="panel">
+      <div id="cash-end-field" class="field" style="display:none;">
+        <label for="cash-end">Efectivo final (contado al cerrar)</label>
+        <input type="text" id="cash-end" placeholder="$ 15.000,00">
+      </div>
+      <button id="end-day-btn" type="button" class="danger" style="width:auto;">Finalizar día</button>
+    </section>
+  </div>
 
-    <p id="day-status-msg" class="status"></p>
-  </section>
+  <p id="day-status-msg" class="status"></p>
 
-  ${proveedoresTemplate}
+  <div class="day-cards-grid">
+    ${proveedoresTemplate}
+  </div>
 
   <section class="panel collapsible-panel" id="cash-panel">
     <div class="collapsible-header">
