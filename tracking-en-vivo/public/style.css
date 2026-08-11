@@ -1691,8 +1691,7 @@ header.hero > #theme-toggle-btn:hover {
 }
 
 .track-map-wrap {
-  max-width: 720px;
-  margin: 20px auto 0;
+  margin: 20px 0 0;
 }
 
 .track-map {
