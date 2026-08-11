@@ -490,6 +490,8 @@ function trackingSnapshot(id, o) {
     status: o.status,
     pickup: o.lat == null,
     label: o.label || null,
+    lat: o.lat,
+    lng: o.lng,
     assigned: !!o.assignedTo,
   };
 }
