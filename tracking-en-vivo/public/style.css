@@ -1781,3 +1781,26 @@ header.hero > #theme-toggle-btn:hover {
 #cash-cards .driver-card-orders {
   margin-top: 10px;
 }
+
+/* Pedidos: mapa + "Deliverys activos" en una columna angosta a la
+   izquierda, tabla de pedidos ocupando el resto a la derecha -- así quedan
+   siempre visibles sin tener que scrollear más allá de ellos para llegar a
+   la tabla. Cae a una columna apilada en pantallas angostas. */
+.pedidos-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.pedidos-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .pedidos-layout {
+    grid-template-columns: 1fr;
+  }
+}
