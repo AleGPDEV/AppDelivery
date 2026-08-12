@@ -35,35 +35,16 @@ export const template = `
     </div>
   </section>
 
-  <section class="panel">
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-      <h2>Proveedores</h2>
-      <button id="new-supplier-open-btn" type="button" class="primary small">+ Agregar proveedor</button>
-    </div>
-    <p class="hint">La lista de a quién le pagás -- elegilos del desplegable al cargar un gasto en vez de tipear el nombre cada vez, así después se puede ver cuánto se gastó por proveedor.</p>
-    <div id="supplier-list" style="margin-top:10px;"></div>
-  </section>
-
-<div id="new-supplier-overlay" class="modal-overlay" style="display:none;">
-  <div class="modal-box">
-    <button id="new-supplier-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
-    <h2>Nuevo proveedor</h2>
-    <div class="field">
-      <label for="new-supplier-name">Nombre</label>
-      <input type="text" id="new-supplier-name" placeholder="Ej: Pescadería López">
-    </div>
-    <button id="add-supplier-btn" type="button" class="primary">Agregar proveedor</button>
-    <p id="add-supplier-status" class="status"></p>
-  </div>
-</div>
-
 <div id="new-expense-overlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
     <button id="new-expense-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
     <h2>Nuevo gasto</h2>
     <div class="field">
       <label for="expense-supplier">Proveedor</label>
-      <select id="expense-supplier"></select>
+      <div style="display:flex; gap:8px; align-items:flex-start;">
+        <select id="expense-supplier" style="flex:1;"></select>
+        <button id="manage-suppliers-open-btn" type="button" class="small" style="width:auto; flex-shrink:0;" title="Ver, renombrar o borrar los proveedores ya guardados">Gestionar</button>
+      </div>
     </div>
     <div class="field" id="new-supplier-inline-field" style="display:none;">
       <label for="new-supplier-inline-name">Nombre del proveedor nuevo</label>
@@ -89,6 +70,23 @@ export const template = `
     <p id="add-expense-status" class="status"></p>
   </div>
 </div>
+
+<div id="manage-suppliers-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button id="manage-suppliers-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2>Proveedores</h2>
+    <p class="hint">La lista de a quién le pagás -- elegilos del desplegable al cargar un gasto en vez de tipear el nombre cada vez, así después se puede ver cuánto se gastó por proveedor. Tocá el nombre para renombrarlo.</p>
+    <div id="supplier-list" style="margin-top:10px;"></div>
+    <div class="field" style="margin-top:16px;">
+      <label for="new-supplier-name">Agregar proveedor nuevo</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="new-supplier-name" placeholder="Ej: Pescadería López" style="flex:1;">
+        <button id="add-supplier-btn" type="button" class="primary small" style="width:auto; flex-shrink:0;">Agregar</button>
+      </div>
+    </div>
+    <p id="add-supplier-status" class="status"></p>
+  </div>
+</div>
 `;
 
 let unsubscribe = null;
@@ -112,9 +110,9 @@ export function mount(root) {
   const expenseCashTotalEl = root.querySelector('#expense-cash-total');
   const expenseTbodyEl = root.querySelector('#expense-tbody');
   const supplierListEl = root.querySelector('#supplier-list');
-  const newSupplierOpenBtn = root.querySelector('#new-supplier-open-btn');
-  const newSupplierOverlay = root.querySelector('#new-supplier-overlay');
-  const newSupplierCloseBtn = root.querySelector('#new-supplier-close-btn');
+  const manageSuppliersOpenBtn = root.querySelector('#manage-suppliers-open-btn');
+  const manageSuppliersOverlay = root.querySelector('#manage-suppliers-overlay');
+  const manageSuppliersCloseBtn = root.querySelector('#manage-suppliers-close-btn');
   const newSupplierNameEl = root.querySelector('#new-supplier-name');
   const addSupplierBtn = root.querySelector('#add-supplier-btn');
   const addSupplierStatusEl = root.querySelector('#add-supplier-status');
@@ -278,15 +276,15 @@ export function mount(root) {
     if (expenseSupplierEl.value === NEW_SUPPLIER_VALUE) newSupplierInlineNameEl.focus();
   });
 
-  newSupplierOpenBtn.addEventListener('click', () => {
+  manageSuppliersOpenBtn.addEventListener('click', () => {
     newSupplierNameEl.value = '';
     addSupplierStatusEl.textContent = '';
     addSupplierStatusEl.className = 'status';
-    newSupplierOverlay.style.display = 'flex';
-    newSupplierNameEl.focus();
+    renderSupplierList();
+    manageSuppliersOverlay.style.display = 'flex';
   });
-  newSupplierCloseBtn.addEventListener('click', () => { newSupplierOverlay.style.display = 'none'; });
-  newSupplierOverlay.addEventListener('click', (e) => { if (e.target === newSupplierOverlay) newSupplierOverlay.style.display = 'none'; });
+  manageSuppliersCloseBtn.addEventListener('click', () => { manageSuppliersOverlay.style.display = 'none'; });
+  manageSuppliersOverlay.addEventListener('click', (e) => { if (e.target === manageSuppliersOverlay) manageSuppliersOverlay.style.display = 'none'; });
 
   addSupplierBtn.addEventListener('click', () => {
     const name = newSupplierNameEl.value.trim();
