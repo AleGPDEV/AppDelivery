@@ -6,39 +6,44 @@ import { createMapPanel } from '/js/map-panel.js';
 import { initReorderDrag } from '/js/reorder-drag.js';
 import { template as newOrderFormTemplate, mount as mountNewOrderForm, unmount as unmountNewOrderForm } from '/js/views/nuevo-pedido.js';
 
-// Antes el mapa vivía al costado de la tabla (dos columnas); a pedido del
-// usuario, para tener mejor panorámica de la lista de pedidos, el mapa (y
-// "Deliverys activos y pedidos asignados", que antes vivía en la pestaña
-// "Deliverys y mapa") pasan a ser secciones apilables de ancho completo,
-// cada una minimizable, arriba de la tabla — que ahora tiene toda la
-// pantalla para ella. Pedidos se queda solo con lo operativo (entran los
-// pedidos, se asignan, se controla qué tiene cada delivery y sus rutas) —
-// el desglose de dinero por delivery se mudó a Día Comercial junto con el
-// resto de lo administrativo (ver analiticas.js). Arrastrar pedidos con un
-// orden personalizado y "separadores" (barreras con texto) que se pueden
-// intercalar entre pedidos sigue igual: el orden se guarda para todos
-// (persistido en Supabase vía order:reorder/separator:*), no es una
-// preferencia local de quien mira.
+// Mapa y "Deliverys activos y pedidos asignados" son 2 paneles flotantes
+// (`.pedidos-float-panel`, `position:absolute`) que se despliegan por
+// encima de la tabla al tocar su barra -- a pedido explícito: NO tienen que
+// modificar el tamaño/posición del contenedor de "Registro de pedidos" ni
+// empujarlo, a diferencia de una sección colapsable normal que sí ocupa
+// lugar real en el documento. Arrancan cerrados (ver mount()) para que la
+// tabla tenga el máximo espacio posible por defecto. Pedidos se queda solo
+// con lo operativo (entran los pedidos, se asignan, se controla qué tiene
+// cada delivery y sus rutas) — el desglose de dinero por delivery se mudó a
+// Día Comercial junto con el resto de lo administrativo (ver analiticas.js).
+// Arrastrar pedidos con un orden personalizado y "separadores" (barreras
+// con texto) que se pueden intercalar entre pedidos sigue igual: el orden
+// se guarda para todos (persistido en Supabase vía
+// order:reorder/separator:*), no es una preferencia local de quien mira.
 const template = `
 <main class="wide">
-  <section class="panel collapsible-panel" id="pedidos-map-panel">
-    <div class="collapsible-header">
-      <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
-      <button id="map-toggle-btn" type="button" class="small" title="Minimizar mapa">▾</button>
+  <div class="pedidos-float-triggers">
+    <div class="pedidos-float-wrap">
+      <button id="map-toggle-btn" type="button" class="pedidos-float-trigger">
+        <span id="driver-count" class="driver-count" style="margin:0;">Esperando deliverys conectados...</span>
+        <span class="pedidos-float-caret">▾</span>
+      </button>
+      <div id="pedidos-map-panel" class="pedidos-float-panel" hidden>
+        <div id="map"></div>
+      </div>
     </div>
-    <div id="map" class="collapsible-body"></div>
-  </section>
 
-  <section class="panel collapsible-panel" id="pedidos-assigned-panel">
-    <div class="collapsible-header">
-      <h3>Deliverys activos y pedidos asignados</h3>
-      <button id="assigned-toggle-btn" type="button" class="small" title="Minimizar">▾</button>
+    <div class="pedidos-float-wrap">
+      <button id="assigned-toggle-btn" type="button" class="pedidos-float-trigger">
+        <span>Deliverys activos y pedidos asignados</span>
+        <span class="pedidos-float-caret">▾</span>
+      </button>
+      <div id="pedidos-assigned-panel" class="pedidos-float-panel" hidden>
+        <p id="assigned-empty" class="hint" hidden>Todavía no hay deliverys conectados.</p>
+        <div id="assigned-cards"></div>
+      </div>
     </div>
-    <div class="collapsible-body">
-      <p id="assigned-empty" class="hint" hidden>Todavía no hay deliverys conectados.</p>
-      <div id="assigned-cards"></div>
-    </div>
-  </section>
+  </div>
 
   <section class="panel">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
@@ -163,24 +168,65 @@ async function mount(root) {
   const assignedCardsEl = root.querySelector('#assigned-cards');
   const assignedEmptyEl = root.querySelector('#assigned-empty');
 
+  // #map arranca dentro de un panel flotante oculto (`hidden`, ver más
+  // abajo) -- Google Maps se construye igual acá (mismo momento de siempre),
+  // pero mide un contenedor con tamaño 0 porque todavía está `display:none`.
+  // Por eso, cada vez que se abre el panel flotante del mapa hay que
+  // dispararle un resize + reencuadre (`toggleFloat('map', ...)` más abajo),
+  // mismo problema/mismo tipo de arreglo que ya se documentó para el mapa de
+  // seguimiento.html.
   const mapPanel = await createMapPanel(root.querySelector('#map'), { driverCountEl });
   if (myGeneration !== currentGeneration) { mapPanel.teardown(); return; } // se navegó a otra vista mientras cargaba
 
-  // Cada una de las 2 secciones de arriba (mapa, deliverys activos) es
-  // minimizable por separado — solo oculta el contenido (`.collapsible-body`),
-  // no lo destruye, así el mapa de Google sigue vivo y las tarjetas no se
-  // pierden al volver a abrir.
-  function wireCollapsible(sectionEl, toggleBtnEl, label) {
-    let collapsed = false;
-    toggleBtnEl.addEventListener('click', () => {
-      collapsed = !collapsed;
-      sectionEl.classList.toggle('collapsed', collapsed);
-      toggleBtnEl.textContent = collapsed ? '▸' : '▾';
-      toggleBtnEl.title = collapsed ? `Mostrar ${label}` : `Minimizar ${label}`;
-    });
+  // Mapa y "Deliverys activos" son paneles flotantes (`position:absolute`,
+  // ver style.css) que se despliegan encima de la tabla sin empujarla ni
+  // cambiarle el tamaño -- a diferencia de una sección colapsable normal.
+  // Arrancan cerrados; tocar la barra abre uno y cierra el otro (no tiene
+  // sentido tener los dos flotando a la vez, se pisarían). Un click afuera
+  // de ambos también cierra el que esté abierto (mismo patrón que un
+  // dropdown común).
+  const floatWraps = {
+    map: root.querySelector('#pedidos-map-panel').closest('.pedidos-float-wrap'),
+    assigned: root.querySelector('#pedidos-assigned-panel').closest('.pedidos-float-wrap'),
+  };
+  const floatPanels = {
+    map: root.querySelector('#pedidos-map-panel'),
+    assigned: root.querySelector('#pedidos-assigned-panel'),
+  };
+  const floatTriggers = {
+    map: root.querySelector('#map-toggle-btn'),
+    assigned: root.querySelector('#assigned-toggle-btn'),
+  };
+  let openFloat = null;
+
+  function closeFloat() {
+    if (!openFloat) return;
+    floatWraps[openFloat].classList.remove('open');
+    floatPanels[openFloat].hidden = true;
+    openFloat = null;
   }
-  wireCollapsible(root.querySelector('#pedidos-map-panel'), root.querySelector('#map-toggle-btn'), 'mapa');
-  wireCollapsible(root.querySelector('#pedidos-assigned-panel'), root.querySelector('#assigned-toggle-btn'), 'deliverys activos y pedidos asignados');
+
+  function toggleFloat(key) {
+    const wasOpen = openFloat === key;
+    closeFloat();
+    if (wasOpen) return;
+    openFloat = key;
+    floatWraps[key].classList.add('open');
+    floatPanels[key].hidden = false;
+    if (key === 'map') {
+      // El contenedor recién ahora tiene un tamaño real medido (dejó de
+      // estar display:none) -- sin esto el mapa queda desalineado/con
+      // tiles mal calculados, igual que en seguimiento.html.
+      window.google.maps.event.trigger(mapPanel.map, 'resize');
+      mapPanel.fitBoundsToEverything();
+    }
+  }
+
+  floatTriggers.map.addEventListener('click', (e) => { e.stopPropagation(); toggleFloat('map'); });
+  floatTriggers.assigned.addEventListener('click', (e) => { e.stopPropagation(); toggleFloat('assigned'); });
+  document.addEventListener('click', (e) => {
+    if (openFloat && !floatWraps[openFloat].contains(e.target)) closeFloat();
+  });
 
   const socket = Store.socket;
   const { driverLabel, teardown: teardownDriverLabel } = createDriverLabel();

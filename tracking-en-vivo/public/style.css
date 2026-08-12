@@ -1781,3 +1781,77 @@ header.hero > #theme-toggle-btn:hover {
 #cash-cards .driver-card-orders {
   margin-top: 10px;
 }
+
+/* Pedidos: mapa y "Deliverys activos" como paneles flotantes -- se abren
+   por ENCIMA de la tabla (position:absolute) sin empujarla ni cambiarle el
+   tamaño, a diferencia de una sección colapsable normal. Arrancan cerrados
+   para que "Registro de pedidos" tenga el máximo espacio por defecto. */
+.pedidos-float-triggers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.pedidos-float-wrap {
+  position: relative;
+}
+
+.pedidos-float-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 20px;
+  box-shadow: var(--shadow);
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+  text-align: left;
+  transition: box-shadow 0.15s ease;
+}
+
+.pedidos-float-wrap.open .pedidos-float-trigger {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-lg);
+}
+
+.pedidos-float-caret {
+  color: var(--muted);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.pedidos-float-wrap.open .pedidos-float-caret {
+  transform: rotate(180deg);
+}
+
+.pedidos-float-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.pedidos-float-panel[hidden] {
+  display: none;
+}
+
+#pedidos-map-panel #map {
+  height: 420px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
