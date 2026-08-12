@@ -103,6 +103,14 @@ settingsOverlay.innerHTML = `
 
     <div data-settings-panel="cuenta" hidden>
       <section>
+        <h2>WhatsApp del negocio</h2>
+        <p class="hint">Cuando un cliente manda un pedido por la web, se arma un mensaje con el detalle listo para mandar a este número -- así queda un aviso aunque el cliente haya tipeado mal su propio celular.</p>
+        <div class="field">
+          <label for="business-whatsapp">Número de WhatsApp</label>
+          <input type="text" id="business-whatsapp" placeholder="Ej: 099 123 456">
+        </div>
+      </section>
+      <section>
         <h2>Cuenta</h2>
         <div class="field">
           <label for="pw-current">Contraseña actual</label>
@@ -134,6 +142,7 @@ const brandLogoPreviewEl = document.getElementById('brand-logo-preview');
 const brandLogoStatusEl = document.getElementById('brand-logo-status');
 const brandResetBtn = document.getElementById('brand-reset-btn');
 const brandStatusEl = document.getElementById('brand-status');
+const businessWhatsappEl = document.getElementById('business-whatsapp');
 const pwCurrentEl = document.getElementById('pw-current');
 const pwNewEl = document.getElementById('pw-new');
 const pwBtnEl = document.getElementById('pw-btn');
@@ -350,6 +359,18 @@ brandStoreNameEl.addEventListener('change', () => {
   updateBranding({ storeName: brandStoreNameEl.value.trim() || DEFAULT_BRANDING.storeName });
 });
 
+// --- WhatsApp del negocio: adónde se manda el aviso de un pedido web (ver
+// pedido-cliente.js) -- una clave más de formConfig, mismo mecanismo que
+// branding, sin tabla nueva.
+function renderBusinessWhatsapp() {
+  businessWhatsappEl.value = formConfig.businessWhatsapp || '';
+}
+
+businessWhatsappEl.addEventListener('change', () => {
+  formConfig = { ...formConfig, businessWhatsapp: businessWhatsappEl.value.trim() };
+  socket.emit('form-config:update', formConfig);
+});
+
 // 'input' (mientras se arrastra el selector) solo actualiza la vista previa
 // en pantalla, sin tocar el servidor -- recién al soltar ('change') se
 // guarda de verdad, así no se satura el socket con un evento por cada
@@ -397,12 +418,14 @@ Store.on('form-config:snapshot', (e) => {
   renderPaymentMethods();
   renderFieldConfig();
   renderBranding();
+  renderBusinessWhatsapp();
   if (window.applyBranding) window.applyBranding(branding());
 });
 
 renderPaymentMethods();
 renderFieldConfig();
 renderBranding();
+renderBusinessWhatsapp();
 
 pwBtnEl.addEventListener('click', async () => {
   const currentPassword = pwCurrentEl.value;

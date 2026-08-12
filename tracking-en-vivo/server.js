@@ -212,6 +212,11 @@ let formConfig = {
     secondaryColor: '#FF6B2C',
     logoUrl: null,
   },
+  // Número de WhatsApp del negocio (Ajustes -> Cuenta) -- adónde
+  // pedido-cliente.js arma el mensaje con el detalle de un pedido web recién
+  // hecho, como aviso de respaldo por si el cliente tipeó mal su propio
+  // celular. Viaja igual que el resto de formConfig, sin tabla nueva.
+  businessWhatsapp: '',
 };
 
 const STALE_MS = 5 * 60 * 1000; // a driver with no updates for 5 min is dropped as offline
@@ -571,6 +576,7 @@ function normalizeFormConfig(fields) {
   if (!cfg.branding || typeof cfg.branding !== 'object') {
     cfg.branding = { storeName: 'Sushi Meshi Pando', primaryColor: '#6C5CE7', secondaryColor: '#FF6B2C', logoUrl: null };
   }
+  if (typeof cfg.businessWhatsapp !== 'string') cfg.businessWhatsapp = '';
   return cfg;
 }
 

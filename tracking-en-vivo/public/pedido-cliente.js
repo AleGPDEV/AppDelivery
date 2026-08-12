@@ -39,6 +39,7 @@ const checkoutCustomFieldsEl = document.getElementById('checkout-custom-fields')
 const checkoutSubmitBtn = document.getElementById('checkout-submit-btn');
 const checkoutStatusEl = document.getElementById('checkout-status');
 const checkoutTrackLinkEl = document.getElementById('checkout-track-link');
+const checkoutWhatsappLinkEl = document.getElementById('checkout-whatsapp-link');
 
 const socket = io();
 
@@ -494,6 +495,54 @@ cartCheckoutBtn.addEventListener('click', () => {
 checkoutCloseBtn.addEventListener('click', () => { checkoutOverlay.style.display = 'none'; });
 checkoutOverlay.addEventListener('click', (e) => { if (e.target === checkoutOverlay) checkoutOverlay.style.display = 'none'; });
 
+// Números uruguayos: 09X XXX XXX (9 dígitos, arranca en 0) → +598 sin el 0,
+// para armar un link de WhatsApp directo -- mismo criterio que driver.js/pedidos.js.
+function whatsappLink(phone) {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  const intl = digits.startsWith('598') ? digits : (digits.startsWith('0') && digits.length === 9) ? `598${digits.slice(1)}` : `598${digits}`;
+  return `https://wa.me/${intl}`;
+}
+
+// Aviso de respaldo al WhatsApp del negocio (Ajustes -> Cuenta) con el
+// detalle del pedido recién hecho -- a pedido explícito, para que quede un
+// registro aunque el cliente haya tipeado mal su propio celular. Arma el
+// link con el mensaje ya escrito y lo deja como link real en la pantalla de
+// confirmación (el cliente igual tiene que tocar "Enviar" adentro de
+// WhatsApp -- no existe una forma de mandar un WhatsApp sin que la persona
+// lo confirme) -- además intenta abrirlo solo, como mejor esfuerzo, por si
+// el navegador lo deja pasar viniendo de la misma interacción del botón
+// "Enviar pedido".
+function sendOrderToBusinessWhatsapp(orderNumber, payload, items) {
+  const wa = whatsappLink(formConfig.businessWhatsapp);
+  if (!wa) { checkoutWhatsappLinkEl.style.display = 'none'; return; }
+
+  const lines = [`🛒 *Pedido #${orderNumber}*`];
+  if (payload.name) lines.push(`Nombre: ${payload.name}`);
+  lines.push(`Celular: ${payload.phone}`);
+  lines.push(payload.pickup ? 'Retira en el local' : `Envío a: ${payload.label || 'dirección a confirmar'}`);
+  lines.push('');
+  lines.push('*Productos:*');
+  let total = 0;
+  items.forEach(({ productId, qty }) => {
+    const p = products.get(productId);
+    if (!p) return;
+    total += p.price * qty;
+    lines.push(`${qty} x ${p.name} — $${(p.price * qty).toFixed(2)}`);
+  });
+  lines.push('');
+  lines.push(`*Total: $${total.toFixed(2)}*`);
+  (formConfig.customFields || []).forEach((f) => {
+    const value = payload.custom && payload.custom[f.key];
+    if (value) lines.push(`${f.label}: ${value}`);
+  });
+
+  const link = `${wa}?text=${encodeURIComponent(lines.join('\n'))}`;
+  checkoutWhatsappLinkEl.href = link;
+  checkoutWhatsappLinkEl.style.display = 'inline-block';
+  window.open(link, '_blank', 'noopener');
+}
+
 checkoutSubmitBtn.addEventListener('click', async () => {
   if (!dayOpen) {
     checkoutStatusEl.textContent = 'No estamos aceptando pedidos en este momento.';
@@ -579,6 +628,7 @@ checkoutSubmitBtn.addEventListener('click', async () => {
       checkoutTrackLinkEl.href = `/seguimiento.html?id=${res.id}`;
       checkoutTrackLinkEl.style.display = 'inline-block';
     }
+    sendOrderToBusinessWhatsapp(res.orderNumber, payload, items);
   });
 });
 
