@@ -6,64 +6,58 @@ import { createMapPanel } from '/js/map-panel.js';
 import { initReorderDrag } from '/js/reorder-drag.js';
 import { template as newOrderFormTemplate, mount as mountNewOrderForm, unmount as unmountNewOrderForm } from '/js/views/nuevo-pedido.js';
 
-// El mapa + "Deliverys activos y pedidos asignados" viven en una columna
-// angosta a la izquierda (`.pedidos-side`), y la tabla de pedidos ocupa el
-// resto del ancho a la derecha (`.pedidos-main`) -- a pedido explícito, con
-// una captura de referencia: quedan siempre visibles sin tener que
-// scrollear más allá de ellos para llegar a la tabla. `.pedidos-layout`
-// (grid, `minmax(320px, 420px) 1fr`) cae a una sola columna apilada en
-// mobile (ver el `@media` en style.css) -- mismo criterio que el resto de
-// los layouts responsive de la app. Pedidos se queda solo con lo operativo
-// (entran los pedidos, se asignan, se controla qué tiene cada delivery y
-// sus rutas) — el desglose de dinero por delivery se mudó a Día Comercial
-// junto con el resto de lo administrativo (ver analiticas.js). Arrastrar
-// pedidos con un orden personalizado y "separadores" (barreras con texto)
-// que se pueden intercalar entre pedidos sigue igual: el orden se guarda
-// para todos (persistido en Supabase vía order:reorder/separator:*), no es
-// una preferencia local de quien mira.
+// Antes el mapa vivía al costado de la tabla (dos columnas); a pedido del
+// usuario, para tener mejor panorámica de la lista de pedidos, el mapa (y
+// "Deliverys activos y pedidos asignados", que antes vivía en la pestaña
+// "Deliverys y mapa") pasan a ser secciones apilables de ancho completo,
+// cada una minimizable, arriba de la tabla — que ahora tiene toda la
+// pantalla para ella. Pedidos se queda solo con lo operativo (entran los
+// pedidos, se asignan, se controla qué tiene cada delivery y sus rutas) —
+// el desglose de dinero por delivery se mudó a Día Comercial junto con el
+// resto de lo administrativo (ver analiticas.js). Arrastrar pedidos con un
+// orden personalizado y "separadores" (barreras con texto) que se pueden
+// intercalar entre pedidos sigue igual: el orden se guarda para todos
+// (persistido en Supabase vía order:reorder/separator:*), no es una
+// preferencia local de quien mira.
 const template = `
 <main class="wide">
-  <div class="pedidos-layout">
-    <div class="pedidos-side">
-      <section class="panel collapsible-panel" id="pedidos-map-panel">
-        <div class="collapsible-header">
-          <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
-          <button id="map-toggle-btn" type="button" class="small" title="Minimizar mapa">▾</button>
-        </div>
-        <div id="map" class="collapsible-body"></div>
-      </section>
-
-      <section class="panel collapsible-panel" id="pedidos-assigned-panel">
-        <div class="collapsible-header">
-          <h3>Deliverys activos y pedidos asignados</h3>
-          <button id="assigned-toggle-btn" type="button" class="small" title="Minimizar">▾</button>
-        </div>
-        <div class="collapsible-body">
-          <p id="assigned-empty" class="hint" hidden>Todavía no hay deliverys conectados.</p>
-          <div id="assigned-cards"></div>
-        </div>
-      </section>
+  <section class="panel collapsible-panel" id="pedidos-map-panel">
+    <div class="collapsible-header">
+      <p id="driver-count" class="driver-count">Esperando deliverys conectados...</p>
+      <button id="map-toggle-btn" type="button" class="small" title="Minimizar mapa">▾</button>
     </div>
+    <div id="map" class="collapsible-body"></div>
+  </section>
 
-    <section class="panel pedidos-main">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-        <h2 style="margin:0;">Registro de pedidos</h2>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="add-separator-btn" type="button" class="small">+ Agregar separador</button>
-          <button id="new-order-open-btn" type="button" class="primary small">+ Nuevo pedido</button>
-        </div>
+  <section class="panel collapsible-panel" id="pedidos-assigned-panel">
+    <div class="collapsible-header">
+      <h3>Deliverys activos y pedidos asignados</h3>
+      <button id="assigned-toggle-btn" type="button" class="small" title="Minimizar">▾</button>
+    </div>
+    <div class="collapsible-body">
+      <p id="assigned-empty" class="hint" hidden>Todavía no hay deliverys conectados.</p>
+      <div id="assigned-cards"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <h2 style="margin:0;">Registro de pedidos</h2>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="add-separator-btn" type="button" class="small">+ Agregar separador</button>
+        <button id="new-order-open-btn" type="button" class="primary small">+ Nuevo pedido</button>
       </div>
-      <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
-      <div class="table-scroll">
-        <table class="order-table">
-          <thead>
-            <tr id="order-thead-row"></tr>
-          </thead>
-          <tbody id="order-tbody"></tbody>
-        </table>
-      </div>
-    </section>
-  </div>
+    </div>
+    <p id="order-count" class="driver-count">Todavía no cargaste ningún pedido.</p>
+    <div class="table-scroll">
+      <table class="order-table">
+        <thead>
+          <tr id="order-thead-row"></tr>
+        </thead>
+        <tbody id="order-tbody"></tbody>
+      </table>
+    </div>
+  </section>
 </main>
 
 <div id="new-order-overlay" class="modal-overlay" style="display:none;">
