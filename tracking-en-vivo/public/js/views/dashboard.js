@@ -17,8 +17,7 @@ const template = `
       <div id="map"></div>
     </section>
     <section class="dashboard-drivers-panel">
-      <h2>Rendición por delivery</h2>
-      <p class="hint">Se arma sola con los pedidos que cada delivery entrega (importe + forma de pago elegida al momento de entregar). "Cambio inicial" lo cargás vos acá y se ve en el celular del delivery (de solo lectura ahí). "Gastos asignados" son los pagos a proveedores que cargaste a nombre de este delivery en "Proveedores" — se restan porque salieron de la plata que ya tenía encima. "Total a entregar" = cambio inicial + lo cobrado en efectivo − gastos asignados.</p>
+      <h2>Rendición por delivery <span class="info-hint" tabindex="0">!<span class="info-hint-text">Se arma sola con los pedidos que cada delivery entrega (importe + forma de pago elegida al momento de entregar). "Cambio inicial" lo cargás vos acá y se ve en el celular del delivery (de solo lectura ahí). "Gastos asignados" son los pagos a proveedores que cargaste a nombre de este delivery en "Proveedores" — se restan porque salieron de la plata que ya tenía encima. "Total a entregar" = cambio inicial + lo cobrado en efectivo − gastos asignados.</span></span></h2>
       <p id="cash-empty" class="hint" hidden>Todavía no hay entregas registradas.</p>
       <div id="driver-cards"></div>
     </section>

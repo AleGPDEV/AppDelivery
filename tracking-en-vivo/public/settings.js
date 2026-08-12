@@ -46,8 +46,7 @@ settingsOverlay.innerHTML = `
 
     <div data-settings-panel="pedidos">
       <section>
-        <h2>Reglas fijas</h2>
-        <p class="hint">Todo pedido tiene que indicar si se retira o se envía — esto no se puede desactivar. Celular siempre se pide y es obligatorio (no hay otra forma de contactar a un cliente). Nombre siempre se pide, pero es opcional. Monto siempre se pide y es obligatorio -- se autocompleta solo si elegís productos del catálogo. El "Ticket" que distingue cada pedido es siempre automático (no hace falta escribir un Nº de pedido a mano).</p>
+        <h2>Reglas fijas <span class="info-hint" tabindex="0">!<span class="info-hint-text">Todo pedido tiene que indicar si se retira o se envía — esto no se puede desactivar. Celular siempre se pide y es obligatorio (no hay otra forma de contactar a un cliente). Nombre siempre se pide, pero es opcional. Monto siempre se pide y es obligatorio -- se autocompleta solo si elegís productos del catálogo. El "Ticket" que distingue cada pedido es siempre automático (no hace falta escribir un Nº de pedido a mano).</span></span></h2>
       </section>
 
       <section>
@@ -59,8 +58,7 @@ settingsOverlay.innerHTML = `
 
     <div data-settings-panel="delivery" hidden>
       <section>
-        <h2>Métodos de pago</h2>
-        <p class="hint">Marcá "Es efectivo físico" en los que salen/entran de la caja en billetes — afecta el cálculo de "Total a entregar" y el cierre de día. Son los mismos botones que usa el delivery al marcar un pedido entregado.</p>
+        <h2>Métodos de pago <span class="info-hint" tabindex="0">!<span class="info-hint-text">Marcá "Es efectivo físico" en los que salen/entran de la caja en billetes — afecta el cálculo de "Total a entregar" y el cierre de día. Son los mismos botones que usa el delivery al marcar un pedido entregado.</span></span></h2>
         <div id="payment-method-list"></div>
         <div style="display:flex; gap:8px; margin-top:10px;">
           <input type="text" id="new-payment-method-name" placeholder="Nombre del método (ej: Mercado Pago)" style="flex:1;">
@@ -103,8 +101,7 @@ settingsOverlay.innerHTML = `
 
     <div data-settings-panel="cuenta" hidden>
       <section>
-        <h2>WhatsApp del negocio</h2>
-        <p class="hint">Cuando un cliente manda un pedido por la web, se arma un mensaje con el detalle listo para mandar a este número -- así queda un aviso aunque el cliente haya tipeado mal su propio celular.</p>
+        <h2>WhatsApp del negocio <span class="info-hint" tabindex="0">!<span class="info-hint-text">Cuando un cliente manda un pedido por la web, se arma un mensaje con el detalle listo para mandar a este número -- así queda un aviso aunque el cliente haya tipeado mal su propio celular.</span></span></h2>
         <div class="field">
           <label for="business-whatsapp">Número de WhatsApp</label>
           <input type="text" id="business-whatsapp" placeholder="Ej: 099 123 456">

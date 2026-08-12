@@ -446,6 +446,20 @@ Es un servicio externo que no operamos nosotros: si no responde, se avisa y se p
 
 ---
 
+### 3.4.1 Aclaraciones largas escondidas atrás de un botón "!" (`.info-hint`)
+
+A pedido explícito ("todas aquellas aclaraciones que lleven mucho texto, colocar un botón con signo de exclamación, que la persona cuando coloque arriba se abra el mensaje") — varios `<p class="hint">` eran párrafos largos, de varias oraciones, que ocupaban buena parte de la pantalla antes de llegar al contenido real. Se armó un componente chico y **sin JS** en `style.css` (`.info-hint`/`.info-hint-text`) para esconderlos atrás de un ícono "!" que muestra el texto al pasar el mouse o al enfocarlo (teclado/toque en mobile):
+```html
+<h2>Título <span class="info-hint" tabindex="0">!<span class="info-hint-text">Texto largo acá...</span></span></h2>
+```
+`.info-hint-text` es `position:absolute`, oculto por default (`opacity:0; visibility:hidden`) y se muestra con `.info-hint:hover .info-hint-text, .info-hint:focus .info-hint-text` — el `tabindex="0"` es lo que permite enfocarlo con teclado (y que un toque en mobile dispare `:focus`).
+
+**No se convirtieron todos los `.hint` del proyecto** — solo los genuinamente largos (multi-oración, con detalle técnico como fórmulas de cálculo): "Reglas fijas"/"Métodos de pago"/"WhatsApp del negocio" (Ajustes), "Rendición del recorrido" (`driver.html`), "Historial diario" (`analisis-datos.js`), "Rendición por delivery" (`dashboard.js`), "Categorías" (`catalogo.js`), "Proveedores" (`proveedores.js`), "Desglose de caja" (`analiticas.js`). Los hints cortos (una sola oración corta) se dejaron como texto visible de siempre — convertir un hint ya breve en un botón sería peor UX, no mejor.
+
+**Excepción a propósito, no se tocó**: el aviso de **"Borra TODO"** en `analisis-datos.js` (el más largo de todos) se dejó como texto siempre visible pese a calificar por longitud — es la advertencia de una acción destructiva e irreversible, y esconder ese tipo de aviso atrás de un hover (que en mobile ni siquiera es un gesto natural) va en contra del propósito de la advertencia. Un ícono "!" que hay que descubrir y tocar es peor que un texto que ya está ahí para frenar a alguien antes de un click peligroso.
+
+---
+
 ## 4. Ruteo real por calles (OSRM)
 
 `router.project-osrm.org` — servidor público y gratis, sin API key. Se usa para:

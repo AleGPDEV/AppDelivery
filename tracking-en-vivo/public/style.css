@@ -296,6 +296,63 @@ textarea {
   margin: 4px 0 0;
 }
 
+/* Aclaración larga que antes ocupaba un <p class="hint"> propio, ahora
+   escondida atrás de un botón "!" -- a pedido explícito, para no llenar la
+   pantalla de párrafos de texto explicativo. Se abre al pasar el mouse
+   (:hover) o al enfocar/tocar (:focus, para teclado y mobile). Markup:
+   <span class="info-hint" tabindex="0">!<span class="info-hint-text">texto
+   largo acá</span></span> -- sin JS, todo CSS. */
+.info-hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.info-hint-text {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  max-width: 280px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-align: left;
+  padding: 10px 12px;
+  line-height: 1.4;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
+  pointer-events: none;
+}
+
+.info-hint:hover .info-hint-text,
+.info-hint:focus .info-hint-text {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
+}
+
 a.primary {
   display: inline-block;
   text-decoration: none;

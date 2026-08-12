@@ -13,7 +13,7 @@ const template = `
 <main class="wide">
   <section class="panel" id="categories-view">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-      <h2>Categorías</h2>
+      <h2>Categorías <span class="info-hint" tabindex="0">!<span class="info-hint-text">Así se ve el pedido online para el cliente — tocá una categoría para ver (y administrar) sus productos. "Descargar Excel" te da una planilla con el catálogo actual (o un ejemplo si todavía está vacío) para editar en lote y volver a subir.</span></span></h2>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <a id="download-template-btn" href="/api/catalog/template.xlsx" class="primary" download style="width:auto; padding:6px 14px; border-radius:var(--radius-sm); font-size:0.85rem; font-weight:600;">⬇ Descargar Excel</a>
         <button id="import-catalog-btn" type="button" class="small">⬆ Cargar Excel</button>
@@ -21,7 +21,6 @@ const template = `
         <button id="reorder-categories-btn" type="button" class="small">↕ Ordenar categorías</button>
       </div>
     </div>
-    <p class="hint">Así se ve el pedido online para el cliente — tocá una categoría para ver (y administrar) sus productos. "Descargar Excel" te da una planilla con el catálogo actual (o un ejemplo si todavía está vacío) para editar en lote y volver a subir.</p>
     <p id="import-status" class="status"></p>
     <div id="category-grid" class="category-grid" style="margin-top:16px;"></div>
   </section>

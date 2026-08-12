@@ -74,8 +74,7 @@ export const template = `
 <div id="manage-suppliers-overlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
     <button id="manage-suppliers-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
-    <h2>Proveedores</h2>
-    <p class="hint">La lista de a quién le pagás -- elegilos del desplegable al cargar un gasto en vez de tipear el nombre cada vez, así después se puede ver cuánto se gastó por proveedor.</p>
+    <h2>Proveedores <span class="info-hint" tabindex="0">!<span class="info-hint-text">La lista de a quién le pagás -- elegilos del desplegable al cargar un gasto en vez de tipear el nombre cada vez, así después se puede ver cuánto se gastó por proveedor.</span></span></h2>
     <div class="field">
       <label for="new-supplier-name">Agregar proveedor nuevo</label>
       <div style="display:flex; gap:8px;">

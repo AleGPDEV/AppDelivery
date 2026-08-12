@@ -28,7 +28,7 @@ const template = `
     </section>
 
     <section class="panel" id="cash-breakdown" style="display:none;">
-      <h3 style="margin-top:0;">Desglose de caja (en vivo)</h3>
+      <h3 style="margin-top:0;">Desglose de caja (en vivo) <span class="info-hint" tabindex="0">!<span class="info-hint-text">Se va actualizando solo con cada venta y cada gasto — si al cerrar el día no cuadra, comparalo contra este desglose para ver en qué momento se desvió.</span></span></h3>
       <div class="driver-card-stats">
         <div class="driver-stat"><label>Efectivo inicial</label><span class="value" id="cb-cash-start">$0.00</span></div>
         <div class="driver-stat"><label>Ventas totales</label><span class="value" id="cb-ventas-totales">$0.00</span></div>
@@ -36,7 +36,6 @@ const template = `
         <div class="driver-stat"><label>Gastos a proveedores (efvo.)</label><span class="value" id="cb-gastos">$0.00</span></div>
         <div class="driver-stat"><label>Efectivo esperado ahora</label><strong id="cb-esperado">$0.00</strong></div>
       </div>
-      <p class="hint">Se va actualizando solo con cada venta y cada gasto — si al cerrar el día no cuadra, comparalo contra este desglose para ver en qué momento se desvió.</p>
     </section>
 
     <section class="panel">

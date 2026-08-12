@@ -10,8 +10,7 @@ import { Router } from '/js/router.js';
 const template = `
 <main class="wide">
   <section class="panel">
-    <h2>Historial diario</h2>
-    <p class="hint">Se guarda al tocar "Finalizar día" en Día Comercial — cada fila queda fija, no cambia aunque edites pedidos después. "Diferencia" es efectivo contado menos efectivo esperado (inicial + lo cobrado en efectivo). Tocá una fila para ver los pedidos de ese día.</p>
+    <h2>Historial diario <span class="info-hint" tabindex="0">!<span class="info-hint-text">Se guarda al tocar "Finalizar día" en Día Comercial — cada fila queda fija, no cambia aunque edites pedidos después. "Diferencia" es efectivo contado menos efectivo esperado (inicial + lo cobrado en efectivo). Tocá una fila para ver los pedidos de ese día.</span></span></h2>
     <div id="daily-chart"></div>
     <div class="table-scroll">
       <table class="order-table">
