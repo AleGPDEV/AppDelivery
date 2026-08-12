@@ -443,8 +443,17 @@ button.small {
   font-size: 1rem;
 }
 
+.collapsible-body {
+  overflow: hidden;
+  max-height: 2000px;
+  opacity: 1;
+  transition: max-height 0.25s ease, opacity 0.2s ease;
+}
+
 .collapsible-panel.collapsed .collapsible-body {
-  display: none;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.2s ease, opacity 0.12s ease;
 }
 
 #assigned-cards,
@@ -538,6 +547,7 @@ button.small {
   padding: 6px 10px;
   border-radius: var(--radius-sm);
   background: var(--bg);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .driver-card-orders li.empty {
@@ -1625,6 +1635,7 @@ header.hero > #theme-toggle-btn:hover {
   font-size: 0.78rem;
   padding: 5px 10px;
   border: 1px solid transparent;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .status-select[data-status="pending"] {
@@ -1844,10 +1855,25 @@ header.hero > #theme-toggle-btn:hover {
   padding: 16px;
   max-height: 70vh;
   overflow-y: auto;
+  /* Se oculta con opacity/transform/visibility (no display:none) para poder
+     animar la apertura -- de paso, el contenedor mide un tamaño real (que
+     Google Maps necesita) incluso estando cerrado, en vez de 0x0. La
+     transición de `visibility` se retrasa al cerrar (`0.15s`) para que no
+     desaparezca de un salto antes de que termine el fade -- y no se retrasa
+     al abrir, para que ya sea clickeable desde el primer frame. */
+  opacity: 0;
+  transform: translateY(-6px);
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
 }
 
-.pedidos-float-panel[hidden] {
-  display: none;
+.pedidos-float-wrap.open .pedidos-float-panel {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
 }
 
 #pedidos-map-panel #map {

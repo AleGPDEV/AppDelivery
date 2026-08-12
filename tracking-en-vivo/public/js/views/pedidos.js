@@ -28,7 +28,7 @@ const template = `
         <span id="driver-count" class="driver-count" style="margin:0;">Esperando deliverys conectados...</span>
         <span class="pedidos-float-caret">▾</span>
       </button>
-      <div id="pedidos-map-panel" class="pedidos-float-panel" hidden>
+      <div id="pedidos-map-panel" class="pedidos-float-panel" aria-hidden="true">
         <div id="map"></div>
       </div>
     </div>
@@ -38,7 +38,7 @@ const template = `
         <span>Deliverys activos y pedidos asignados</span>
         <span class="pedidos-float-caret">▾</span>
       </button>
-      <div id="pedidos-assigned-panel" class="pedidos-float-panel" hidden>
+      <div id="pedidos-assigned-panel" class="pedidos-float-panel" aria-hidden="true">
         <p id="assigned-empty" class="hint" hidden>Todavía no hay deliverys conectados.</p>
         <div id="assigned-cards"></div>
       </div>
@@ -168,13 +168,13 @@ async function mount(root) {
   const assignedCardsEl = root.querySelector('#assigned-cards');
   const assignedEmptyEl = root.querySelector('#assigned-empty');
 
-  // #map arranca dentro de un panel flotante oculto (`hidden`, ver más
-  // abajo) -- Google Maps se construye igual acá (mismo momento de siempre),
-  // pero mide un contenedor con tamaño 0 porque todavía está `display:none`.
-  // Por eso, cada vez que se abre el panel flotante del mapa hay que
-  // dispararle un resize + reencuadre (`toggleFloat('map', ...)` más abajo),
-  // mismo problema/mismo tipo de arreglo que ya se documentó para el mapa de
-  // seguimiento.html.
+  // #map arranca dentro de un panel flotante cerrado -- a diferencia de la
+  // primera versión de este panel, ahora se oculta con `visibility:hidden`
+  // (no `display:none`, ver `.pedidos-float-panel` en style.css) para poder
+  // animar la apertura/cierre, lo que de paso evita el bug de "Google Maps
+  // mide 0x0 porque nace oculto" (ver seguimiento.html) -- el contenedor
+  // tiene un tamaño real incluso cerrado. `toggleFloat('map', ...)` más
+  // abajo igual dispara un resize + reencuadre al abrir, como backstop.
   const mapPanel = await createMapPanel(root.querySelector('#map'), { driverCountEl });
   if (myGeneration !== currentGeneration) { mapPanel.teardown(); return; } // se navegó a otra vista mientras cargaba
 
@@ -202,7 +202,7 @@ async function mount(root) {
   function closeFloat() {
     if (!openFloat) return;
     floatWraps[openFloat].classList.remove('open');
-    floatPanels[openFloat].hidden = true;
+    floatPanels[openFloat].setAttribute('aria-hidden', 'true');
     openFloat = null;
   }
 
@@ -212,11 +212,14 @@ async function mount(root) {
     if (wasOpen) return;
     openFloat = key;
     floatWraps[key].classList.add('open');
-    floatPanels[key].hidden = false;
+    floatPanels[key].setAttribute('aria-hidden', 'false');
     if (key === 'map') {
-      // El contenedor recién ahora tiene un tamaño real medido (dejó de
-      // estar display:none) -- sin esto el mapa queda desalineado/con
-      // tiles mal calculados, igual que en seguimiento.html.
+      // El panel cerrado usa visibility:hidden (no display:none, ver
+      // style.css) para que la animación de apertura pueda transicionar y
+      // para que el contenedor ya tenga un tamaño real medido incluso
+      // cerrado -- pero se dispara igual un resize + reencuadre acá como
+      // backstop, mismo criterio "defensa en profundidad" que ya se usa en
+      // seguimiento.html.
       window.google.maps.event.trigger(mapPanel.map, 'resize');
       mapPanel.fitBoundsToEverything();
     }
