@@ -603,15 +603,6 @@ button.small {
   flex: 1;
 }
 
-/* Lista de productos del catálogo dentro de "+ Nuevo pedido" (elegir items
-   a mano cuando el cliente no puede pedir por la web) -- mismo .order-list
-   de siempre, solo con un tope de alto para no alargar el modal si la
-   categoría tiene muchos productos. */
-.field-scroll-list {
-  max-height: 220px;
-  overflow-y: auto;
-}
-
 .order-list select {
   width: auto;
   padding: 6px 8px;
@@ -819,6 +810,13 @@ button.small {
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
   animation: modal-in 0.18s ease;
+}
+
+/* Variante ancha -- el popup "Elegir productos del catálogo" de
+   nuevo-pedido.js necesita lugar para la grilla de categorías/productos con
+   foto, .modal-box a 520px la dejaba en una sola columna angosta. */
+.modal-box-wide {
+  max-width: 900px;
 }
 
 @keyframes fade-in {
@@ -1029,6 +1027,27 @@ button.small {
 .qty-stepper span {
   min-width: 20px;
   text-align: center;
+}
+
+/* Insignia con la cantidad ya elegida, sobre la tarjeta de producto del
+   popup "Elegir productos del catálogo" (nuevo-pedido.js) -- para que se
+   note de un vistazo qué ya se agregó sin tener que abrir cada popup de
+   detalle de nuevo. */
+.picker-product-qty-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .cart-fab {

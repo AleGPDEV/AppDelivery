@@ -75,9 +75,8 @@ export const template = `
   <div class="modal-box">
     <button id="manage-suppliers-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
     <h2>Proveedores</h2>
-    <p class="hint">La lista de a quién le pagás -- elegilos del desplegable al cargar un gasto en vez de tipear el nombre cada vez, así después se puede ver cuánto se gastó por proveedor. Tocá el nombre para renombrarlo.</p>
-    <div id="supplier-list" style="margin-top:10px;"></div>
-    <div class="field" style="margin-top:16px;">
+    <p class="hint">La lista de a quién le pagás -- elegilos del desplegable al cargar un gasto en vez de tipear el nombre cada vez, así después se puede ver cuánto se gastó por proveedor.</p>
+    <div class="field">
       <label for="new-supplier-name">Agregar proveedor nuevo</label>
       <div style="display:flex; gap:8px;">
         <input type="text" id="new-supplier-name" placeholder="Ej: Pescadería López" style="flex:1;">
@@ -85,6 +84,7 @@ export const template = `
       </div>
     </div>
     <p id="add-supplier-status" class="status"></p>
+    <div id="supplier-list" style="margin-top:16px;"></div>
   </div>
 </div>
 `;
@@ -231,14 +231,38 @@ export function mount(root) {
       row.style.gap = '10px';
       row.style.padding = '6px 0';
 
+      const nameLabel = document.createElement('span');
+      nameLabel.textContent = s.name;
+      nameLabel.style.flex = '1';
+
       const nameInput = document.createElement('input');
       nameInput.type = 'text';
       nameInput.value = s.name;
       nameInput.style.flex = '1';
-      nameInput.addEventListener('change', () => {
+      nameInput.style.display = 'none';
+
+      function commitEdit() {
         const name = nameInput.value.trim();
-        if (!name) { nameInput.value = s.name; return; }
-        socket.emit('supplier:edit', { id, fields: { name } });
+        if (name && name !== s.name) socket.emit('supplier:edit', { id, fields: { name } });
+        nameInput.style.display = 'none';
+        nameLabel.style.display = '';
+      }
+      nameInput.addEventListener('blur', commitEdit);
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') nameInput.blur();
+        if (e.key === 'Escape') { nameInput.value = s.name; nameInput.blur(); }
+      });
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'small';
+      editBtn.textContent = '✏️';
+      editBtn.title = 'Renombrar proveedor';
+      editBtn.addEventListener('click', () => {
+        nameLabel.style.display = 'none';
+        nameInput.style.display = '';
+        nameInput.focus();
+        nameInput.select();
       });
 
       const delBtn = document.createElement('button');
@@ -250,7 +274,7 @@ export function mount(root) {
       delBtn.title = hasExpenses ? 'Ya tiene gastos cargados -- no se puede borrar sin perder esa trazabilidad.' : 'Eliminar proveedor';
       delBtn.addEventListener('click', () => socket.emit('supplier:remove', { id }));
 
-      row.append(nameInput, delBtn);
+      row.append(nameLabel, nameInput, editBtn, delBtn);
       supplierListEl.appendChild(row);
     });
     if (suppliers().size === 0) {

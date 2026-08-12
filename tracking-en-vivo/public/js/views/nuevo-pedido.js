@@ -33,10 +33,9 @@ export const template = `
     <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
   </div>
   <div class="field">
-    <label for="new-item-category-select">Productos del catálogo (opcional)</label>
+    <label>Productos del catálogo (opcional)</label>
     <p class="hint">Para cuando el cliente te pide por teléfono/WhatsApp en vez de la web -- elegí lo mismo que hubiera elegido él, y el pedido queda con el mismo detalle (🧾) que uno de la web. Si no elegís nada, el pedido queda solo con el monto de abajo, como siempre.</p>
-    <select id="new-item-category-select"></select>
-    <ul id="new-item-product-list" class="order-list field-scroll-list" style="margin-top:10px;"></ul>
+    <button id="open-catalog-picker-btn" type="button" class="small">🛒 Elegir productos del catálogo</button>
   </div>
   <div class="field" id="new-item-summary-field" hidden>
     <label>Productos agregados</label>
@@ -63,6 +62,44 @@ export const template = `
     <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
     <p id="load-status" class="status"></p>
   </div>
+
+<div id="catalog-picker-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box modal-box-wide">
+    <button id="catalog-picker-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2>Elegir productos del catálogo</h2>
+
+    <div id="picker-categories-view">
+      <div id="picker-category-grid" class="category-grid" style="margin-top:16px;"></div>
+    </div>
+
+    <div id="picker-products-view" hidden>
+      <button id="picker-back-btn" type="button" class="small" style="margin-bottom:14px;">← Categorías</button>
+      <h3 id="picker-products-title" style="margin:0 0 6px;"></h3>
+      <div id="picker-products-grid" class="catalog-grid"></div>
+    </div>
+
+    <div id="picker-cart-bar" style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+      <span id="picker-cart-summary" class="hint">Nada elegido todavía.</span>
+      <button id="picker-done-btn" type="button" class="primary">Listo</button>
+    </div>
+  </div>
+</div>
+
+<div id="picker-detail-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button id="picker-detail-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <img id="picker-detail-img" style="width:100%; border-radius:var(--radius-md); margin-bottom:12px; display:none;">
+    <h2 id="picker-detail-name"></h2>
+    <p id="picker-detail-price" class="product-price"></p>
+    <p id="picker-detail-description" class="hint"></p>
+    <div class="qty-stepper" style="margin:16px 0;">
+      <button id="picker-detail-minus" type="button" class="small">−</button>
+      <span id="picker-detail-qty">1</span>
+      <button id="picker-detail-plus" type="button" class="primary small">+</button>
+    </div>
+    <button id="picker-detail-add-btn" type="button" class="primary">Agregar</button>
+  </div>
+</div>
 `;
 
 function genId() {
@@ -105,10 +142,29 @@ export function mount(root) {
   const newOrderStatusEl = root.querySelector('#new-order-status');
   const dayGateMsgEl = root.querySelector('#day-gate-msg');
   const orderDupWarningEl = root.querySelector('#order-dup-warning');
-  const newItemCategorySelect = root.querySelector('#new-item-category-select');
-  const newItemProductListEl = root.querySelector('#new-item-product-list');
   const newItemSummaryFieldEl = root.querySelector('#new-item-summary-field');
   const newItemSummaryEl = root.querySelector('#new-item-summary');
+  const openCatalogPickerBtn = root.querySelector('#open-catalog-picker-btn');
+  const catalogPickerOverlay = root.querySelector('#catalog-picker-overlay');
+  const catalogPickerCloseBtn = root.querySelector('#catalog-picker-close-btn');
+  const pickerCategoriesViewEl = root.querySelector('#picker-categories-view');
+  const pickerCategoryGridEl = root.querySelector('#picker-category-grid');
+  const pickerProductsViewEl = root.querySelector('#picker-products-view');
+  const pickerProductsTitleEl = root.querySelector('#picker-products-title');
+  const pickerProductsGridEl = root.querySelector('#picker-products-grid');
+  const pickerBackBtn = root.querySelector('#picker-back-btn');
+  const pickerCartSummaryEl = root.querySelector('#picker-cart-summary');
+  const pickerDoneBtn = root.querySelector('#picker-done-btn');
+  const pickerDetailOverlay = root.querySelector('#picker-detail-overlay');
+  const pickerDetailCloseBtn = root.querySelector('#picker-detail-close-btn');
+  const pickerDetailImgEl = root.querySelector('#picker-detail-img');
+  const pickerDetailNameEl = root.querySelector('#picker-detail-name');
+  const pickerDetailPriceEl = root.querySelector('#picker-detail-price');
+  const pickerDetailDescriptionEl = root.querySelector('#picker-detail-description');
+  const pickerDetailMinusBtn = root.querySelector('#picker-detail-minus');
+  const pickerDetailQtyEl = root.querySelector('#picker-detail-qty');
+  const pickerDetailPlusBtn = root.querySelector('#picker-detail-plus');
+  const pickerDetailAddBtn = root.querySelector('#picker-detail-add-btn');
 
   const socket = Store.socket;
   let deliveryType = null;
@@ -168,63 +224,209 @@ export function mount(root) {
     newAmountEl.value = itemsSubtotal().toFixed(2);
   }
 
-  function renderItemCategoryOptions() {
-    const previous = newItemCategorySelect.value;
-    newItemCategorySelect.innerHTML = '';
-    const cats = sortedVisibleCategories();
+  // Popup "Elegir productos del catálogo": mismo recorrido que ve el
+  // cliente en pedido-cliente.js (grilla de categorías -> grilla de
+  // productos de una -> popup de detalle con +/- y "Agregar") -- a pedido
+  // explícito ("me gustaría que la pantalla del pedido fuera la misma que
+  // el ve"), en vez del desplegable + lista con steppers que había antes.
+  // El estado elegido sigue viviendo en `selectedItems` (Map productId->qty,
+  // compartido con "Productos agregados"/Monto más abajo) -- este popup solo
+  // cambia CÓMO se llena ese Map, no la lógica de resumen/autocompletar que
+  // ya existía.
+  function categoryHasVisibleProducts(categoryId) {
+    return productsInCategory(categoryId).length > 0;
+  }
+
+  let pickerView = 'categories';
+  let pickerActiveCategoryId = null;
+  let detailProductId = null;
+  let detailQty = 1;
+
+  function pickerCartCount() {
+    let count = 0;
+    selectedItems.forEach((qty) => { count += qty; });
+    return count;
+  }
+
+  function renderPickerCartSummary() {
+    const count = pickerCartCount();
+    pickerCartSummaryEl.textContent = count === 0
+      ? 'Nada elegido todavía.'
+      : `${count} producto${count === 1 ? '' : 's'} elegido${count === 1 ? '' : 's'} — $${itemsSubtotal().toFixed(2)}`;
+  }
+
+  function buildPickerProductCard(productId, p) {
+    const card = document.createElement('div');
+    card.className = 'product-card';
+    card.style.cursor = 'pointer';
+
+    const media = document.createElement('div');
+    media.className = 'product-card-media';
+    if (p.imageUrl) {
+      const img = document.createElement('img');
+      img.src = p.imageUrl;
+      img.alt = p.name;
+      media.appendChild(img);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'no-image';
+      placeholder.textContent = '🍣';
+      media.appendChild(placeholder);
+    }
+    const overlay = document.createElement('div');
+    overlay.className = 'product-card-media-overlay';
+    media.appendChild(overlay);
+
+    const info = document.createElement('div');
+    info.className = 'product-card-media-info';
+    const top = document.createElement('div');
+    top.className = 'product-card-media-info-top';
+    const name = document.createElement('div');
+    name.className = 'product-name';
+    name.textContent = p.name;
+    top.appendChild(name);
+    const price = document.createElement('div');
+    price.className = 'product-price';
+    price.textContent = `$${Number(p.price || 0).toFixed(2)}`;
+    top.appendChild(price);
+    info.appendChild(top);
+    if (p.description) {
+      const desc = document.createElement('div');
+      desc.className = 'product-description';
+      desc.textContent = p.description;
+      info.appendChild(desc);
+    }
+    media.appendChild(info);
+    card.appendChild(media);
+
+    if (selectedItems.get(productId)) {
+      const badge = document.createElement('div');
+      badge.className = 'picker-product-qty-badge';
+      badge.textContent = selectedItems.get(productId);
+      card.appendChild(badge);
+    }
+
+    card.addEventListener('click', () => openPickerDetail(productId, p));
+    return card;
+  }
+
+  function renderPickerCategoryGrid() {
+    pickerCategoryGridEl.innerHTML = '';
+    const cats = sortedVisibleCategories().filter(([catId]) => categoryHasVisibleProducts(catId));
     if (cats.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Sin categorías en el catálogo';
-      newItemCategorySelect.appendChild(opt);
+      pickerCategoryGridEl.innerHTML = '<p class="hint">El catálogo todavía no tiene productos visibles.</p>';
       return;
     }
     cats.forEach(([catId, c]) => {
-      const opt = document.createElement('option');
-      opt.value = catId;
-      opt.textContent = c.name;
-      newItemCategorySelect.appendChild(opt);
-    });
-    if (previous && cats.some(([catId]) => catId === previous)) newItemCategorySelect.value = previous;
-  }
-
-  function renderItemProductList() {
-    newItemProductListEl.innerHTML = '';
-    const categoryId = newItemCategorySelect.value;
-    const list = productsInCategory(categoryId);
-    if (list.length === 0) {
-      const li = document.createElement('li');
-      li.className = 'empty';
-      li.textContent = categoryId ? 'Esta categoría no tiene productos.' : 'Elegí una categoría.';
-      newItemProductListEl.appendChild(li);
-      return;
-    }
-    list.forEach(([productId, p]) => {
-      const li = document.createElement('li');
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'category-card';
+      if (c.imageUrl) {
+        const img = document.createElement('img');
+        img.src = c.imageUrl;
+        img.alt = '';
+        card.appendChild(img);
+      }
+      const overlay = document.createElement('div');
+      overlay.className = 'category-card-overlay';
+      card.appendChild(overlay);
       const label = document.createElement('span');
-      label.className = 'order-info';
-      label.textContent = `${p.name} — $${Number(p.price || 0).toFixed(2)}`;
-      li.appendChild(label);
-
-      const stepper = document.createElement('div');
-      stepper.className = 'qty-stepper';
-      const minusBtn = document.createElement('button');
-      minusBtn.type = 'button';
-      minusBtn.className = 'small';
-      minusBtn.textContent = '−';
-      minusBtn.addEventListener('click', () => setItemQty(productId, (selectedItems.get(productId) || 0) - 1));
-      const qtySpan = document.createElement('span');
-      qtySpan.textContent = selectedItems.get(productId) || 0;
-      const plusBtn = document.createElement('button');
-      plusBtn.type = 'button';
-      plusBtn.className = 'primary small';
-      plusBtn.textContent = '+';
-      plusBtn.addEventListener('click', () => setItemQty(productId, (selectedItems.get(productId) || 0) + 1));
-      stepper.append(minusBtn, qtySpan, plusBtn);
-      li.appendChild(stepper);
-      newItemProductListEl.appendChild(li);
+      label.className = 'category-card-name';
+      label.textContent = c.name;
+      card.appendChild(label);
+      card.addEventListener('click', () => showPickerProducts(catId));
+      pickerCategoryGridEl.appendChild(card);
     });
   }
+
+  function renderPickerProductsGrid() {
+    const c = Store.getCategories().get(pickerActiveCategoryId);
+    pickerProductsTitleEl.textContent = c ? c.name : '';
+    pickerProductsGridEl.innerHTML = '';
+    productsInCategory(pickerActiveCategoryId).forEach(([productId, p]) => {
+      pickerProductsGridEl.appendChild(buildPickerProductCard(productId, p));
+    });
+  }
+
+  function renderPicker() {
+    if (pickerView === 'products') {
+      pickerCategoriesViewEl.hidden = true;
+      pickerProductsViewEl.hidden = false;
+      renderPickerProductsGrid();
+    } else {
+      pickerProductsViewEl.hidden = true;
+      pickerCategoriesViewEl.hidden = false;
+      renderPickerCategoryGrid();
+    }
+    renderPickerCartSummary();
+  }
+
+  function showPickerCategories() {
+    pickerView = 'categories';
+    pickerActiveCategoryId = null;
+    renderPicker();
+  }
+
+  function showPickerProducts(categoryId) {
+    pickerView = 'products';
+    pickerActiveCategoryId = categoryId;
+    renderPicker();
+  }
+
+  function renderPickerDetailQty() {
+    pickerDetailQtyEl.textContent = detailQty;
+    pickerDetailMinusBtn.disabled = detailQty <= 1;
+  }
+
+  function openPickerDetail(productId, p) {
+    detailProductId = productId;
+    detailQty = selectedItems.get(productId) || 1;
+    if (p.imageUrl) {
+      pickerDetailImgEl.src = p.imageUrl;
+      pickerDetailImgEl.style.display = '';
+    } else {
+      pickerDetailImgEl.style.display = 'none';
+    }
+    pickerDetailNameEl.textContent = p.name;
+    pickerDetailPriceEl.textContent = `$${Number(p.price || 0).toFixed(2)}`;
+    pickerDetailDescriptionEl.textContent = p.description || '';
+    pickerDetailDescriptionEl.style.display = p.description ? '' : 'none';
+    renderPickerDetailQty();
+    pickerDetailOverlay.style.display = 'flex';
+  }
+
+  function closePickerDetail() {
+    pickerDetailOverlay.style.display = 'none';
+    detailProductId = null;
+  }
+
+  pickerDetailCloseBtn.addEventListener('click', closePickerDetail);
+  pickerDetailOverlay.addEventListener('click', (e) => { if (e.target === pickerDetailOverlay) closePickerDetail(); });
+  pickerDetailMinusBtn.addEventListener('click', () => {
+    if (detailQty <= 1) return;
+    detailQty -= 1;
+    renderPickerDetailQty();
+  });
+  pickerDetailPlusBtn.addEventListener('click', () => {
+    detailQty += 1;
+    renderPickerDetailQty();
+  });
+  pickerDetailAddBtn.addEventListener('click', () => {
+    if (!detailProductId) return;
+    setItemQty(detailProductId, detailQty);
+    closePickerDetail();
+    if (pickerView === 'products') renderPickerProductsGrid();
+    renderPickerCartSummary();
+  });
+
+  openCatalogPickerBtn.addEventListener('click', () => {
+    showPickerCategories();
+    catalogPickerOverlay.style.display = 'flex';
+  });
+  catalogPickerCloseBtn.addEventListener('click', () => { catalogPickerOverlay.style.display = 'none'; });
+  catalogPickerOverlay.addEventListener('click', (e) => { if (e.target === catalogPickerOverlay) catalogPickerOverlay.style.display = 'none'; });
+  pickerBackBtn.addEventListener('click', showPickerCategories);
+  pickerDoneBtn.addEventListener('click', () => { catalogPickerOverlay.style.display = 'none'; });
 
   function renderItemSummary() {
     newItemSummaryEl.innerHTML = '';
@@ -257,18 +459,14 @@ export function mount(root) {
   function setItemQty(productId, qty) {
     if (qty <= 0) selectedItems.delete(productId);
     else selectedItems.set(productId, qty);
-    renderItemProductList();
     renderItemSummary();
     updateAmountFromItems();
   }
 
   function resetItemPicker() {
     selectedItems.clear();
-    renderItemProductList();
     renderItemSummary();
   }
-
-  newItemCategorySelect.addEventListener('change', renderItemProductList);
 
   function applyDayGate() {
     dayGateMsgEl.style.display = dayOpen ? 'none' : '';
@@ -535,8 +733,12 @@ export function mount(root) {
     if (e.detail.assignedTo) recomputeRouteForDriver(e.detail.assignedTo);
   };
   const onCatalogSnapshot = () => {
-    renderItemCategoryOptions();
-    renderItemProductList();
+    if (catalogPickerOverlay.style.display === 'none') return;
+    if (pickerView === 'products' && !categoryHasVisibleProducts(pickerActiveCategoryId)) {
+      showPickerCategories();
+    } else {
+      renderPicker();
+    }
   };
 
   Store.on('business-day:status', onDayStatus);
@@ -561,8 +763,6 @@ export function mount(root) {
   applyDayGate();
   applyFormConfig();
   renderAssignOptions();
-  renderItemCategoryOptions();
-  renderItemProductList();
 }
 
 export function unmount() {
