@@ -255,11 +255,14 @@ async function mount(root) {
   }
 
   function visibleFieldColumns() {
-    const builtins = FIELD_COLUMNS.filter((c) => (formConfig[c.key] || { visible: true }).visible !== false);
+    // Los 4 builtins (Teléfono/Nombre/Nº pedido/Monto) ya no son
+    // configurables desde Ajustes (ver el comentario en
+    // nuevo-pedido.js/applyFormConfig()) -- siempre se muestran. Solo los
+    // Campos personalizados siguen siendo filtrables por visibilidad.
     const customs = (formConfig.customFields || [])
       .filter((f) => f.visible !== false)
       .map((f) => ({ key: f.key, label: f.label }));
-    return [...builtins, ...customs];
+    return [...FIELD_COLUMNS, ...customs];
   }
 
   // Columnas ordenables (todas menos la de agarrar-y-arrastrar y la de

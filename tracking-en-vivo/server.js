@@ -175,19 +175,18 @@ const suppliers = new Map();
 // después se edita/borra ese proveedor o método de pago.
 const expenses = new Map();
 
-// "Tipo de envío" (retira/envía) es el único campo realmente fijo — siempre
-// obligatorio, no vive acá (ver order:add/order:web-add y
-// nuevo-pedido.js/pedido-cliente.js). `phone`/`name`/`orderNumber`/`amount`
-// SÍ son personalizables de nuevo desde Ajustes (mostrar/ocultar y marcar
-// obligatorio), igual que un campo personalizado — con una excepción: el
-// pedido online (pedido-cliente.js/order:web-add) exige el teléfono siempre,
-// sin importar este valor, porque ahí no hay otra forma de contactar a un
-// cliente anónimo. Para carga manual del admin sí se puede relajar (ej. un
-// cliente conocido de cuenta corriente).
+// `phone`/`name`/`orderNumber`/`amount` quedaron fijos (ya no configurables
+// desde Ajustes, ver nuevo-pedido.js/applyFormConfig() y el comentario en
+// order:add más abajo) -- estos valores son ahora solo el default/histórico
+// de una fila `form_config` vieja en Supabase, nada del lado del cliente los
+// lee para decidir mostrar/ocultar. `name` es la excepción real: sigue
+// viajando de `formConfig` porque `pedido-cliente.js` (pedido online) SÍ lo
+// consulta para su propio checkout, que es una pantalla distinta de
+// "+ Nuevo pedido" y no se tocó en este cambio.
 let formConfig = {
   phone: { visible: true, required: true },
   name: { visible: true, required: false },
-  orderNumber: { visible: true, required: true },
+  orderNumber: { visible: false, required: false },
   amount: { visible: true, required: true },
   // Lo único realmente agregable/editable desde Ajustes: la lista de formas
   // en que puede salir/entrar plata. `isCash` marca si ese método representa
@@ -565,7 +564,7 @@ function normalizeFormConfig(fields) {
   // vez (ver DOCUMENTACION.md 3.4) — de ahí que esté cubierto por un test.
   if (!cfg.phone) cfg.phone = { visible: true, required: true };
   if (!cfg.name) cfg.name = { visible: true, required: false };
-  if (!cfg.orderNumber) cfg.orderNumber = { visible: true, required: true };
+  if (!cfg.orderNumber) cfg.orderNumber = { visible: false, required: false };
   if (!cfg.amount) cfg.amount = { visible: true, required: true };
   // Ídem para la identidad visual -- config guardada antes de que existiera
   // "Diseño" en Ajustes no tiene esta clave.
@@ -1112,11 +1111,9 @@ io.on('connection', (socket) => {
     const hasLocation = typeof lat === 'number' && typeof lng === 'number';
     // Tipo de envío obligatorio: o retira (pickup) o tiene que traer una
     // ubicación resuelta — no queda una tercera opción de "ninguna de las
-    // dos", esto no es configurable. El teléfono acá sí vuelve a depender de
-    // Ajustes (el admin puede relajarlo para carga manual) — a diferencia de
-    // order:web-add, que lo exige siempre porque ahí no hay otra forma de
-    // contactar a un cliente anónimo.
-    if ((formConfig.phone?.required && !phone) || !(pickup || hasLocation)) return;
+    // dos". El teléfono ya no depende de Ajustes -- quedó fijo, siempre
+    // obligatorio, igual que en order:web-add (ver nuevo-pedido.js).
+    if (!phone || !(pickup || hasLocation)) return;
 
     // Items del catálogo son opcionales acá (a diferencia de order:web-add,
     // donde son obligatorios) — el admin puede seguir cargando un pedido

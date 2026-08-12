@@ -87,7 +87,8 @@ test('normalizeFormConfig', async (t) => {
     assert.equal(cfg.phone.visible, true);
     assert.equal(cfg.phone.required, true);
     assert.equal(cfg.name.required, false);
-    assert.equal(cfg.orderNumber.required, true);
+    assert.equal(cfg.orderNumber.visible, false);
+    assert.equal(cfg.orderNumber.required, false);
     assert.equal(cfg.amount.required, true);
     assert.deepEqual(cfg.customFields, []);
     assert.equal(cfg.paymentMethods.length, 3);
@@ -109,11 +110,13 @@ test('normalizeFormConfig', async (t) => {
     // Este es exactamente el bug real que hubo en producción: una config
     // guardada de antes de que existiera este mecanismo no tenía estas
     // claves, y sin este backfill quedaban `undefined` (tratado como
-    // "oculto" en el resto del código).
+    // "oculto" en el resto del código). orderNumber es la excepción a
+    // propósito -- su default es oculto (ver el comentario junto a
+    // `let formConfig` más arriba), no un campo huérfano de un bug viejo.
     const cfg = normalizeFormConfig({ customFields: [], paymentMethods: [] });
     assert.equal(cfg.phone.visible, true);
     assert.equal(cfg.name.visible, true);
-    assert.equal(cfg.orderNumber.visible, true);
+    assert.equal(cfg.orderNumber.visible, false);
     assert.equal(cfg.amount.visible, true);
   });
 

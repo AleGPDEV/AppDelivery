@@ -101,7 +101,7 @@ function whatsappLink(phone) {
 
 // Teléfono y "cómo llegar" siempre se muestran (no es opcional); los campos
 // personalizados sí, según `formConfig.customFields[].showToDriver` (lo elige
-// el admin desde "Personalizar campos del formulario" en nuevo-pedido.html).
+// el admin desde Ajustes -> Pedidos -> "Campos personalizados").
 // Devuelve un elemento DOM (no un string) para poder colgarle el botón
 // "Entregado" con su propio listener — un InfoWindow de Google Maps acepta
 // cualquiera de los dos como contenido.

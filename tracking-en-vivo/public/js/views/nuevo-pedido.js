@@ -8,18 +8,19 @@ import { recomputeRouteForDriver } from '/js/route-helper.js';
 // <main> propio (el modal ya pone su propio contenedor).
 export const template = `
   <p id="day-gate-msg" class="status error" style="display:none;">Iniciá el día desde "Día Comercial" antes de cargar pedidos.</p>
-  <div class="field" data-field="phone">
+  <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
+    <button id="bulk-load-open-btn" type="button" class="danger small">Agregar varios pedidos</button>
+  </div>
+  <div class="field">
     <label for="new-phone">Celular</label>
     <input type="text" id="new-phone" placeholder="Ej: 099 123 456">
   </div>
-  <div class="field" data-field="name">
+  <div class="field">
     <label for="new-name">Nombre</label>
     <input type="text" id="new-name" placeholder="Ej: Matias">
   </div>
-  <div class="field" data-field="orderNumber">
-    <label for="new-ordernum">Nº de pedido</label>
-    <input type="text" id="new-ordernum" placeholder="Ej: 13">
-    <p id="order-dup-warning" class="hint" style="display:none; color:var(--danger);"></p>
+  <div class="field">
+    <button id="open-catalog-picker-btn" type="button" class="small">🛒 Seleccionar productos del catálogo</button>
   </div>
   <div class="field">
     <label>Tipo de envío</label>
@@ -33,27 +34,20 @@ export const template = `
     <input type="text" id="new-location" placeholder="Link de Google Maps, dirección o coordenadas">
   </div>
   <div class="field">
-    <label>Productos del catálogo (opcional)</label>
-    <p class="hint">Para cuando el cliente te pide por teléfono/WhatsApp en vez de la web -- elegí lo mismo que hubiera elegido él, y el pedido queda con el mismo detalle (🧾) que uno de la web. Si no elegís nada, el pedido queda solo con el monto de abajo, como siempre.</p>
-    <button id="open-catalog-picker-btn" type="button" class="small">🛒 Elegir productos del catálogo</button>
-  </div>
-  <div class="field" id="new-item-summary-field" hidden>
-    <label>Productos agregados</label>
-    <ul id="new-item-summary" class="order-list"></ul>
-  </div>
-  <div class="field" data-field="amount">
     <label for="new-amount">Monto</label>
     <input type="text" id="new-amount" placeholder="$ 1.630,00">
   </div>
-  <div id="custom-fields-container"></div>
-  <div class="field">
-    <label for="new-assign">Asignar a</label>
-    <select id="new-assign"><option value="">Sin asignar</option></select>
+  <div id="optional-fields-heading" hidden style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+    <h3 style="margin:0 0 4px;">Campos opcionales</h3>
   </div>
+  <div id="custom-fields-container"></div>
   <button id="new-order-btn" type="button" class="primary">Agregar pedido</button>
   <p id="new-order-status" class="status"></p>
 
-  <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
+<div id="bulk-load-overlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button id="bulk-load-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2>Agregar varios pedidos</h2>
     <div class="field">
       <label for="stops-text">Carga masiva (una línea por pedido, pegado directo de una planilla)</label>
       <textarea id="stops-text" rows="5"></textarea>
@@ -62,11 +56,12 @@ export const template = `
     <button id="load-btn" type="button" class="primary">Cargar pedidos</button>
     <p id="load-status" class="status"></p>
   </div>
+</div>
 
 <div id="catalog-picker-overlay" class="modal-overlay" style="display:none;">
   <div class="modal-box modal-box-wide">
     <button id="catalog-picker-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
-    <h2>Elegir productos del catálogo</h2>
+    <h2>Seleccioná productos</h2>
 
     <div id="picker-categories-view">
       <div id="picker-category-grid" class="category-grid" style="margin-top:16px;"></div>
@@ -79,7 +74,7 @@ export const template = `
     </div>
 
     <div id="picker-cart-bar" style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
-      <span id="picker-cart-summary" class="hint">Nada elegido todavía.</span>
+      <button id="picker-cart-open-btn" type="button" class="small">🛒 Ver carrito (0)</button>
       <button id="picker-done-btn" type="button" class="primary">Listo</button>
     </div>
   </div>
@@ -100,6 +95,25 @@ export const template = `
     <button id="picker-detail-add-btn" type="button" class="primary">Agregar</button>
   </div>
 </div>
+
+<div id="picker-cart-overlay" class="cart-drawer-overlay" style="display:none;">
+  <div class="cart-drawer">
+    <div class="cart-drawer-header">
+      <h2>Tu carrito</h2>
+      <button id="picker-cart-close-btn" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="cart-drawer-columns">
+      <span></span>
+      <span>Cant.</span>
+      <span>Precio</span>
+      <span></span>
+    </div>
+    <div id="picker-cart-items" class="cart-drawer-items"></div>
+    <div class="cart-drawer-footer">
+      <button id="picker-cart-continue-btn" type="button" class="primary">Continuar</button>
+    </div>
+  </div>
+</div>
 `;
 
 function genId() {
@@ -109,15 +123,18 @@ function genId() {
 const FIELD_LABELS = {
   phone: 'Celular',
   name: 'Nombre',
-  orderNumber: 'Nº de pedido',
   location: 'Ubicación de entrega',
   amount: 'Monto',
 };
-const FIELD_ORDER = ['phone', 'name', 'orderNumber', 'location', 'amount'];
+// Los cuatro son fijos ahora (ver applyFormConfig) -- siempre viajan en este
+// orden, tanto en el formulario individual como en la carga masiva. "Nº de
+// pedido" ya no está: el "Ticket" (seq) que ya numera cada pedido lo dejó
+// redundante para carga a mano/masiva -- sigue existiendo como columna en la
+// tabla para los pedidos que sí lo traen (ej. los de la web, "WEB-123").
+const FIELD_ORDER = ['phone', 'name', 'location', 'amount'];
 const FIELD_SAMPLE = {
   phone: '099123456',
   name: 'Matias',
-  orderNumber: '3',
   location: 'https://www.google.com/maps?q=-34.7067,-55.9607',
   amount: '$ 1.630,00',
 };
@@ -131,19 +148,18 @@ export function mount(root) {
   const bulkHintEl = root.querySelector('#bulk-hint');
   const newPhoneEl = root.querySelector('#new-phone');
   const newNameEl = root.querySelector('#new-name');
-  const newOrderNumEl = root.querySelector('#new-ordernum');
   const newLocationEl = root.querySelector('#new-location');
   const newLocationFieldEl = root.querySelector('#new-location-field');
   const deliveryTypePickupBtn = root.querySelector('#delivery-type-pickup-btn');
   const deliveryTypeShippingBtn = root.querySelector('#delivery-type-shipping-btn');
   const newAmountEl = root.querySelector('#new-amount');
-  const newAssignEl = root.querySelector('#new-assign');
   const newOrderBtn = root.querySelector('#new-order-btn');
   const newOrderStatusEl = root.querySelector('#new-order-status');
   const dayGateMsgEl = root.querySelector('#day-gate-msg');
-  const orderDupWarningEl = root.querySelector('#order-dup-warning');
-  const newItemSummaryFieldEl = root.querySelector('#new-item-summary-field');
-  const newItemSummaryEl = root.querySelector('#new-item-summary');
+  const optionalFieldsHeadingEl = root.querySelector('#optional-fields-heading');
+  const bulkLoadOpenBtn = root.querySelector('#bulk-load-open-btn');
+  const bulkLoadOverlay = root.querySelector('#bulk-load-overlay');
+  const bulkLoadCloseBtn = root.querySelector('#bulk-load-close-btn');
   const openCatalogPickerBtn = root.querySelector('#open-catalog-picker-btn');
   const catalogPickerOverlay = root.querySelector('#catalog-picker-overlay');
   const catalogPickerCloseBtn = root.querySelector('#catalog-picker-close-btn');
@@ -153,7 +169,7 @@ export function mount(root) {
   const pickerProductsTitleEl = root.querySelector('#picker-products-title');
   const pickerProductsGridEl = root.querySelector('#picker-products-grid');
   const pickerBackBtn = root.querySelector('#picker-back-btn');
-  const pickerCartSummaryEl = root.querySelector('#picker-cart-summary');
+  const pickerCartOpenBtn = root.querySelector('#picker-cart-open-btn');
   const pickerDoneBtn = root.querySelector('#picker-done-btn');
   const pickerDetailOverlay = root.querySelector('#picker-detail-overlay');
   const pickerDetailCloseBtn = root.querySelector('#picker-detail-close-btn');
@@ -165,6 +181,10 @@ export function mount(root) {
   const pickerDetailQtyEl = root.querySelector('#picker-detail-qty');
   const pickerDetailPlusBtn = root.querySelector('#picker-detail-plus');
   const pickerDetailAddBtn = root.querySelector('#picker-detail-add-btn');
+  const pickerCartOverlay = root.querySelector('#picker-cart-overlay');
+  const pickerCartCloseBtn = root.querySelector('#picker-cart-close-btn');
+  const pickerCartItemsEl = root.querySelector('#picker-cart-items');
+  const pickerCartContinueBtn = root.querySelector('#picker-cart-continue-btn');
 
   const socket = Store.socket;
   let deliveryType = null;
@@ -249,10 +269,7 @@ export function mount(root) {
   }
 
   function renderPickerCartSummary() {
-    const count = pickerCartCount();
-    pickerCartSummaryEl.textContent = count === 0
-      ? 'Nada elegido todavía.'
-      : `${count} producto${count === 1 ? '' : 's'} elegido${count === 1 ? '' : 's'} — $${itemsSubtotal().toFixed(2)}`;
+    pickerCartOpenBtn.textContent = `🛒 Ver carrito (${pickerCartCount()})`;
   }
 
   function buildPickerProductCard(productId, p) {
@@ -428,44 +445,110 @@ export function mount(root) {
   pickerBackBtn.addEventListener('click', showPickerCategories);
   pickerDoneBtn.addEventListener('click', () => { catalogPickerOverlay.style.display = 'none'; });
 
-  function renderItemSummary() {
-    newItemSummaryEl.innerHTML = '';
-    newItemSummaryFieldEl.hidden = selectedItems.size === 0;
-    selectedItems.forEach((qty, productId) => {
-      const p = Store.getProducts().get(productId);
-      if (!p) return;
-      const li = document.createElement('li');
-      const label = document.createElement('span');
-      label.className = 'order-info';
-      label.textContent = `${qty} × ${p.name}`;
-      li.appendChild(label);
-      const right = document.createElement('span');
-      right.style.display = 'flex';
-      right.style.alignItems = 'center';
-      right.style.gap = '8px';
-      const amount = document.createElement('span');
-      amount.textContent = `$${(p.price * qty).toFixed(2)}`;
-      const removeBtn = document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'danger small';
-      removeBtn.textContent = '🗑';
-      removeBtn.addEventListener('click', () => setItemQty(productId, 0));
-      right.append(amount, removeBtn);
-      li.appendChild(right);
-      newItemSummaryEl.appendChild(li);
+  pickerCartOpenBtn.addEventListener('click', () => {
+    renderPickerCart();
+    pickerCartOverlay.style.display = 'flex';
+  });
+  pickerCartCloseBtn.addEventListener('click', () => { pickerCartOverlay.style.display = 'none'; });
+  pickerCartOverlay.addEventListener('click', (e) => { if (e.target === pickerCartOverlay) pickerCartOverlay.style.display = 'none'; });
+  // "Continuar" cierra todo el popup de catálogo (carrito + selección),
+  // vuelve directo al formulario de "Nuevo pedido" -- ahí el Monto ya
+  // refleja lo elegido, no hace falta un paso más.
+  pickerCartContinueBtn.addEventListener('click', () => {
+    pickerCartOverlay.style.display = 'none';
+    catalogPickerOverlay.style.display = 'none';
+  });
+
+  bulkLoadOpenBtn.addEventListener('click', () => { bulkLoadOverlay.style.display = 'flex'; });
+  bulkLoadCloseBtn.addEventListener('click', () => { bulkLoadOverlay.style.display = 'none'; });
+  bulkLoadOverlay.addEventListener('click', (e) => { if (e.target === bulkLoadOverlay) bulkLoadOverlay.style.display = 'none'; });
+
+  // "Tu carrito": mismo patrón que el carrito del cliente (pedido-cliente.js
+  // buildCartItemRow), reusa las clases .cart-drawer-* tal cual -- foto +
+  // nombre/descripción, cantidad, precio y 🗑 por fila. Sin subtotal (a
+  // pedido explícito: "el subtotal no es necesario ya que está el monto",
+  // que ya se autocompleta solo -- ver updateAmountFromItems).
+  function buildPickerCartItemRow(productId, p, qty) {
+    const row = document.createElement('div');
+    row.className = 'cart-drawer-item';
+
+    const media = document.createElement('div');
+    media.className = 'cart-drawer-item-media';
+    if (p.imageUrl) {
+      const img = document.createElement('img');
+      img.src = p.imageUrl;
+      img.alt = p.name;
+      media.appendChild(img);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'no-image';
+      placeholder.textContent = '🍣';
+      media.appendChild(placeholder);
+    }
+    const overlay = document.createElement('div');
+    overlay.className = 'cart-drawer-item-media-overlay';
+    media.appendChild(overlay);
+    const info = document.createElement('div');
+    info.className = 'cart-drawer-item-media-info';
+    const name = document.createElement('div');
+    name.className = 'product-name';
+    name.textContent = p.name;
+    info.appendChild(name);
+    if (p.description) {
+      const desc = document.createElement('div');
+      desc.className = 'product-description';
+      desc.textContent = p.description;
+      info.appendChild(desc);
+    }
+    media.appendChild(info);
+    row.appendChild(media);
+
+    const qtyEl = document.createElement('div');
+    qtyEl.className = 'cart-drawer-item-qty';
+    qtyEl.textContent = qty;
+    row.appendChild(qtyEl);
+
+    const priceEl = document.createElement('div');
+    priceEl.className = 'cart-drawer-item-price';
+    priceEl.textContent = `$${Number(p.price || 0).toFixed(2)}`;
+    row.appendChild(priceEl);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'danger small cart-drawer-item-remove';
+    removeBtn.textContent = '🗑';
+    removeBtn.title = 'Sacar del carrito';
+    removeBtn.addEventListener('click', () => {
+      setItemQty(productId, 0);
+      renderPickerCart();
+      renderPickerCartSummary();
+      if (pickerView === 'products') renderPickerProductsGrid();
+    });
+    row.appendChild(removeBtn);
+
+    return row;
+  }
+
+  function renderPickerCart() {
+    pickerCartItemsEl.innerHTML = '';
+    const entries = Array.from(selectedItems.entries()).filter(([id]) => Store.getProducts().has(id));
+    if (entries.length === 0) {
+      pickerCartItemsEl.innerHTML = '<div class="empty-cart"><span class="empty-cart-icon">🛍️</span><p class="hint">Todavía no agregaste nada.</p></div>';
+      return;
+    }
+    entries.forEach(([productId, qty]) => {
+      pickerCartItemsEl.appendChild(buildPickerCartItemRow(productId, Store.getProducts().get(productId), qty));
     });
   }
 
   function setItemQty(productId, qty) {
     if (qty <= 0) selectedItems.delete(productId);
     else selectedItems.set(productId, qty);
-    renderItemSummary();
     updateAmountFromItems();
   }
 
   function resetItemPicker() {
     selectedItems.clear();
-    renderItemSummary();
   }
 
   function applyDayGate() {
@@ -473,20 +556,6 @@ export function mount(root) {
     newOrderBtn.disabled = !dayOpen;
     loadBtn.disabled = !dayOpen;
   }
-
-  function findActiveOrderByNumber(number) {
-    if (!number) return null;
-    for (const o of Store.getOrders().values()) {
-      if (!o.archivedAt && o.orderNumber === number) return o;
-    }
-    return null;
-  }
-
-  newOrderNumEl.addEventListener('input', () => {
-    const match = findActiveOrderByNumber(newOrderNumEl.value.trim());
-    orderDupWarningEl.style.display = match ? '' : 'none';
-    orderDupWarningEl.textContent = match ? `Ya hay un pedido activo con este número${match.name ? ` (${match.name})` : ''} — se puede cargar igual.` : '';
-  });
 
   function customFields() {
     return formConfig.customFields || [];
@@ -497,9 +566,8 @@ export function mount(root) {
   }
 
   function visibleFieldOrder() {
-    const builtins = FIELD_ORDER.filter((key) => key === 'location' || (formConfig[key] || { visible: true }).visible !== false);
     const customs = customFields().filter((f) => f.visible !== false).map((f) => f.key);
-    return [...builtins, ...customs];
+    return [...FIELD_ORDER, ...customs];
   }
 
   function updateBulkHint() {
@@ -518,8 +586,9 @@ export function mount(root) {
   function renderCustomFieldInputs() {
     const container = root.querySelector('#custom-fields-container');
     container.innerHTML = '';
-    customFields().forEach((f) => {
-      if (f.visible === false) return;
+    const visibleFields = customFields().filter((f) => f.visible !== false);
+    optionalFieldsHeadingEl.hidden = visibleFields.length === 0;
+    visibleFields.forEach((f) => {
       const div = document.createElement('div');
       div.className = 'field';
       const label = document.createElement('label');
@@ -533,26 +602,12 @@ export function mount(root) {
     });
   }
 
+  // Celular/Nombre/Nº de pedido/Monto ya no dependen de formConfig -- los
+  // cuatro quedaron fijos (ver Ajustes -> "Reglas fijas"), solo los Campos
+  // personalizados siguen siendo configurables.
   function applyFormConfig() {
-    ['phone', 'name', 'orderNumber', 'amount'].forEach((key) => {
-      const wrapper = root.querySelector(`[data-field="${key}"]`);
-      const cfg = formConfig[key] || { visible: true, required: false };
-      if (wrapper) wrapper.style.display = cfg.visible === false ? 'none' : '';
-    });
     renderCustomFieldInputs();
     updateBulkHint();
-  }
-
-  function renderAssignOptions() {
-    const previousValue = newAssignEl.value;
-    newAssignEl.innerHTML = '<option value="">Sin asignar</option>';
-    Store.getDrivers().forEach((d, driverId) => {
-      const opt = document.createElement('option');
-      opt.value = driverId;
-      opt.textContent = d.name;
-      newAssignEl.appendChild(opt);
-    });
-    newAssignEl.value = previousValue;
   }
 
   loadBtn.addEventListener('click', async () => {
@@ -567,12 +622,10 @@ export function mount(root) {
     loadBtn.disabled = true;
     let okCount = 0;
     const failed = [];
-    const duplicates = [];
-    const seenInBatch = new Set();
 
     for (let i = 0; i < rows.length; i++) {
-      const { order, raw, amount, phone, name, custom } = rows[i];
-      const label = order ? `el pedido #${order} (línea ${i + 1})` : `la línea ${i + 1}`;
+      const { raw, amount, phone, name, custom } = rows[i];
+      const label = `la línea ${i + 1}`;
       let point = null;
       if (raw) {
         try {
@@ -581,38 +634,29 @@ export function mount(root) {
             loadStatusEl.className = 'status';
           });
         } catch (e) {
-          failed.push(`${order ? `#${order}` : `línea ${i + 1}`}: ${e.message}`);
+          failed.push(`línea ${i + 1}: ${e.message}`);
           continue;
         }
       }
-      if (order && (findActiveOrderByNumber(order) || seenInBatch.has(order))) duplicates.push(`#${order}`);
-      if (order) seenInBatch.add(order);
-      socket.emit('order:add', { id: genId(), orderNumber: order, phone, name, lat: point ? point.lat : null, lng: point ? point.lng : null, label: point ? point.label : '', amount, custom, pickup: !raw });
+      socket.emit('order:add', { id: genId(), phone, name, lat: point ? point.lat : null, lng: point ? point.lng : null, label: point ? point.label : '', amount, custom, pickup: !raw });
       okCount++;
     }
 
     loadBtn.disabled = false;
-    let msg = failed.length === 0
+    const msg = failed.length === 0
       ? `Se cargaron ${okCount} pedido${okCount === 1 ? '' : 's'} correctamente.`
       : `${okCount} cargados. ${failed.length} con problemas:\n${failed.join('\n')}`;
-    if (duplicates.length > 0) msg += `\nOjo, número de pedido repetido: ${duplicates.join(', ')}.`;
     loadStatusEl.textContent = msg;
     loadStatusEl.className = failed.length === 0 ? 'status ok' : 'status error';
     if (failed.length === 0) stopsTextEl.value = '';
   });
 
-  const FIELD_INPUTS = {
-    phone: newPhoneEl,
-    name: newNameEl,
-    orderNumber: newOrderNumEl,
-    amount: newAmountEl,
-  };
-
   newOrderBtn.addEventListener('click', async () => {
-    const missing = Object.keys(FIELD_INPUTS).filter((key) => {
-      const cfg = formConfig[key];
-      return cfg && cfg.visible !== false && cfg.required && !FIELD_INPUTS[key].value.trim();
-    }).map(labelFor);
+    // Celular es lo único obligatorio de los tres campos de siempre --
+    // Nombre quedó fijo como opcional (ver Ajustes -> "Reglas fijas").
+    const missing = [];
+    if (!newPhoneEl.value.trim()) missing.push('Celular');
+    if (!newAmountEl.value.trim()) missing.push('Monto');
     if (!deliveryType) missing.push('Tipo de envío (Retira/Envío)');
     const missingCustomFields = customFields().filter((f) => {
       if (f.visible === false || !f.required) return false;
@@ -631,12 +675,10 @@ export function mount(root) {
       return;
     }
 
-    const orderNumber = newOrderNumEl.value.trim();
     newOrderBtn.disabled = true;
     const locationRaw = deliveryType === 'envio' ? newLocationEl.value.trim() : '';
     const phone = newPhoneEl.value.trim();
     const name = newNameEl.value.trim();
-    const assignTo = newAssignEl.value || null;
     const amount = Geo.parseAmount(newAmountEl.value);
     const custom = {};
     customFields().forEach((f) => {
@@ -648,7 +690,7 @@ export function mount(root) {
     let point = null;
     if (locationRaw) {
       try {
-        point = await Geo.resolveInput(locationRaw, `el pedido #${orderNumber}`, (msg) => {
+        point = await Geo.resolveInput(locationRaw, 'el pedido', (msg) => {
           newOrderStatusEl.textContent = msg;
           newOrderStatusEl.className = 'status';
         });
@@ -664,7 +706,6 @@ export function mount(root) {
     const items = Array.from(selectedItems.entries()).map(([productId, qty]) => ({ productId, qty }));
     socket.emit('order:add', {
       id,
-      orderNumber,
       phone,
       name,
       lat: point ? point.lat : null,
@@ -675,18 +716,13 @@ export function mount(root) {
       pickup: deliveryType === 'retira',
       items: items.length > 0 ? items : undefined,
     });
-    if (assignTo) {
-      socket.emit('order:assign', { id, driverId: assignTo });
-    }
 
-    newOrderStatusEl.textContent = `Pedido #${orderNumber} agregado.`;
+    newOrderStatusEl.textContent = 'Pedido agregado.';
     newOrderStatusEl.className = 'status ok';
     newPhoneEl.value = '';
     newNameEl.value = '';
-    newOrderNumEl.value = '';
     newLocationEl.value = '';
     newAmountEl.value = '';
-    newAssignEl.value = '';
     deliveryType = null;
     applyDeliveryTypeButtons();
     resetItemPicker();
@@ -697,17 +733,6 @@ export function mount(root) {
     newOrderBtn.disabled = false;
   });
 
-  // El GPS manda `driver:update` cada pocos segundos — redibujar el <select>
-  // "Asignar a" en cada uno lo cerraría solo si lo tenías abierto para elegir.
-  // Solo hace falta redibujar cuando aparece un delivery nuevo o cambia su
-  // nombre. Store ya aplica el update a su Map antes de re-emitir el evento,
-  // así que comparar contra Store.getDrivers() no serviría para detectar el
-  // cambio — se mantiene una copia propia de "último nombre visto" con el
-  // único propósito de esa comparación (igual que hacía la página vieja con
-  // su Map local, antes de pisarlo con el valor nuevo).
-  const knownDriverNames = new Map();
-  Store.getDrivers().forEach((d, id) => knownDriverNames.set(id, d.name));
-
   const onDayStatus = (e) => {
     dayOpen = !!e.detail.day;
     applyDayGate();
@@ -715,19 +740,6 @@ export function mount(root) {
   const onFormConfigSnapshot = (e) => {
     formConfig = e.detail || {};
     applyFormConfig();
-  };
-  const onDriversSnapshot = (e) => {
-    (e.detail || []).forEach((d) => knownDriverNames.set(d.id, d.name));
-    renderAssignOptions();
-  };
-  const onDriverUpdate = (e) => {
-    const needsRerender = knownDriverNames.get(e.detail.id) !== e.detail.name;
-    knownDriverNames.set(e.detail.id, e.detail.name);
-    if (needsRerender) renderAssignOptions();
-  };
-  const onDriverRemove = (e) => {
-    knownDriverNames.delete(e.detail.id);
-    renderAssignOptions();
   };
   const onOrderUpdate = (e) => {
     if (e.detail.assignedTo) recomputeRouteForDriver(e.detail.assignedTo);
@@ -743,18 +755,12 @@ export function mount(root) {
 
   Store.on('business-day:status', onDayStatus);
   Store.on('form-config:snapshot', onFormConfigSnapshot);
-  Store.on('drivers:snapshot', onDriversSnapshot);
-  Store.on('driver:update', onDriverUpdate);
-  Store.on('driver:remove', onDriverRemove);
   Store.on('order:update', onOrderUpdate);
   Store.on('catalog:snapshot', onCatalogSnapshot);
 
   unsubscribe = () => {
     Store.off('business-day:status', onDayStatus);
     Store.off('form-config:snapshot', onFormConfigSnapshot);
-    Store.off('drivers:snapshot', onDriversSnapshot);
-    Store.off('driver:update', onDriverUpdate);
-    Store.off('driver:remove', onDriverRemove);
     Store.off('order:update', onOrderUpdate);
     Store.off('catalog:snapshot', onCatalogSnapshot);
   };
@@ -762,7 +768,6 @@ export function mount(root) {
   applyDeliveryTypeButtons();
   applyDayGate();
   applyFormConfig();
-  renderAssignOptions();
 }
 
 export function unmount() {

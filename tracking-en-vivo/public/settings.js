@@ -47,18 +47,12 @@ settingsOverlay.innerHTML = `
     <div data-settings-panel="pedidos">
       <section>
         <h2>Reglas fijas</h2>
-        <p class="hint">Todo pedido tiene que indicar si se retira o se envía — esto no se puede desactivar. El pedido online (para clientes) siempre pide el celular, sin excepción, porque no hay otra forma de contactar a un cliente anónimo.</p>
-      </section>
-
-      <section>
-        <h2>Personalizar campos del formulario</h2>
-        <p class="hint">Elegí qué mostrar y qué es obligatorio al cargar un pedido a mano o de a muchos (carga masiva). El "Ticket" que distingue cada pedido es siempre automático, no depende de estos campos.</p>
-        <div id="builtin-field-config-list"></div>
+        <p class="hint">Todo pedido tiene que indicar si se retira o se envía — esto no se puede desactivar. Celular siempre se pide y es obligatorio (no hay otra forma de contactar a un cliente). Nombre siempre se pide, pero es opcional. Monto siempre se pide y es obligatorio -- se autocompleta solo si elegís productos del catálogo. El "Ticket" que distingue cada pedido es siempre automático (no hace falta escribir un Nº de pedido a mano).</p>
       </section>
 
       <section>
         <h2>Campos personalizados</h2>
-        <p class="hint">Campos extra que se piden al cargar un pedido (además de teléfono, tipo de envío, nombre, Nº de pedido y monto).</p>
+        <p class="hint">Campos extra que se piden al cargar un pedido (además de teléfono, tipo de envío, nombre y monto). Estos sí son opcionales -- elegís vos si se muestran y si son obligatorios.</p>
         <div id="field-config-list"></div>
       </section>
     </div>
@@ -127,7 +121,6 @@ settingsOverlay.innerHTML = `
 document.body.appendChild(settingsOverlay);
 
 const settingsCloseBtn = document.getElementById('settings-close-btn');
-const builtinFieldConfigListEl = document.getElementById('builtin-field-config-list');
 const paymentMethodListEl = document.getElementById('payment-method-list');
 const newPaymentMethodNameEl = document.getElementById('new-payment-method-name');
 const newPaymentMethodCashEl = document.getElementById('new-payment-method-cash');
@@ -224,62 +217,6 @@ addPaymentMethodBtn.addEventListener('click', () => {
   newPaymentMethodNameEl.value = '';
   newPaymentMethodCashEl.checked = false;
 });
-
-const BUILTIN_FIELD_LABELS = {
-  phone: 'Celular',
-  name: 'Nombre',
-  orderNumber: 'Nº de pedido',
-  amount: 'Monto',
-};
-
-function renderBuiltinFieldConfig() {
-  builtinFieldConfigListEl.innerHTML = '';
-
-  Object.keys(BUILTIN_FIELD_LABELS).forEach((key) => {
-    const cfg = formConfig[key] || { visible: true, required: false };
-    const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '16px';
-    row.style.padding = '6px 0';
-
-    const label = document.createElement('span');
-    label.style.flex = '1';
-    label.textContent = BUILTIN_FIELD_LABELS[key];
-
-    const visibleLabel = document.createElement('label');
-    visibleLabel.style.display = 'flex';
-    visibleLabel.style.alignItems = 'center';
-    visibleLabel.style.gap = '4px';
-    visibleLabel.style.fontSize = '0.85rem';
-    const visibleCheck = document.createElement('input');
-    visibleCheck.type = 'checkbox';
-    visibleCheck.checked = cfg.visible !== false;
-    visibleLabel.append(visibleCheck, 'Mostrar');
-
-    const requiredLabel = document.createElement('label');
-    requiredLabel.style.display = 'flex';
-    requiredLabel.style.alignItems = 'center';
-    requiredLabel.style.gap = '4px';
-    requiredLabel.style.fontSize = '0.85rem';
-    const requiredCheck = document.createElement('input');
-    requiredCheck.type = 'checkbox';
-    requiredCheck.checked = !!cfg.required;
-    requiredCheck.disabled = !visibleCheck.checked;
-    requiredLabel.append(requiredCheck, 'Obligatorio');
-
-    function emitUpdate() {
-      requiredCheck.disabled = !visibleCheck.checked;
-      formConfig = { ...formConfig, [key]: { visible: visibleCheck.checked, required: visibleCheck.checked && requiredCheck.checked } };
-      socket.emit('form-config:update', formConfig);
-    }
-    visibleCheck.addEventListener('change', emitUpdate);
-    requiredCheck.addEventListener('change', emitUpdate);
-
-    row.append(label, visibleLabel, requiredLabel);
-    builtinFieldConfigListEl.appendChild(row);
-  });
-}
 
 function renderFieldConfig() {
   fieldConfigListEl.innerHTML = '';
@@ -457,14 +394,12 @@ brandLogoInputEl.addEventListener('change', async () => {
 
 Store.on('form-config:snapshot', (e) => {
   formConfig = e.detail || {};
-  renderBuiltinFieldConfig();
   renderPaymentMethods();
   renderFieldConfig();
   renderBranding();
   if (window.applyBranding) window.applyBranding(branding());
 });
 
-renderBuiltinFieldConfig();
 renderPaymentMethods();
 renderFieldConfig();
 renderBranding();
