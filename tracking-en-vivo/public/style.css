@@ -94,6 +94,109 @@
   --primary-soft: var(--primary-soft-dm);
 }
 
+/* Paletas alternativas (Ajustes -> Diseño -> Estilo, ver theme.js) -- a
+   pedido explícito ("la interfaz marrón no me gusta como color nocturno, y
+   la otra color blanco full tampoco"). "Cálido" (arriba, sin atributo) sigue
+   siendo el default de siempre; estas son variantes que reemplazan solo
+   bg/panel/text/muted/border/shadow -- `--primary`/`--secondary` (marca) y
+   `--danger`/`--ok` (semánticos) quedan iguales en cualquier paleta, vienen
+   de otro lado (branding y la base de :root/dark de arriba). Elección
+   guardada por dispositivo en localStorage (`window.setPalette`, mismo
+   criterio que el toggle claro/oscuro -- no es identidad de marca, es
+   preferencia personal de lectura), no viaja por formConfig.
+   Ninguno de los light usa panel 100% blanco a propósito, por el mismo
+   pedido -- todos son un gris/tinte muy claro, nunca #FFFFFF puro. */
+
+:root[data-palette="slate"] {
+  --bg: #EDEFF2;
+  --panel: #F7F8FA;
+  --text: #1E2530;
+  --muted: #6B7684;
+  --border: #DBDFE4;
+  --shadow: 0 1px 3px rgba(20, 22, 26, 0.08), 0 6px 18px rgba(20, 22, 26, 0.08);
+  --shadow-lg: 0 10px 30px rgba(20, 22, 26, 0.18), 0 3px 10px rgba(20, 22, 26, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="slate"]:not([data-theme="light"]) {
+    --bg: #15181D;
+    --panel: #1E2229;
+    --text: #E8ECF1;
+    --muted: #95A0AF;
+    --border: #2D343D;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 12px 34px rgba(0, 0, 0, 0.5), 0 3px 12px rgba(0, 0, 0, 0.35);
+  }
+}
+:root[data-palette="slate"][data-theme="dark"] {
+  --bg: #15181D;
+  --panel: #1E2229;
+  --text: #E8ECF1;
+  --muted: #95A0AF;
+  --border: #2D343D;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 34px rgba(0, 0, 0, 0.5), 0 3px 12px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-palette="ocean"] {
+  --bg: #EAF2F8;
+  --panel: #F5FAFD;
+  --text: #132433;
+  --muted: #5C7A8C;
+  --border: #D3E4EE;
+  --shadow: 0 1px 3px rgba(15, 30, 41, 0.08), 0 6px 18px rgba(15, 30, 41, 0.08);
+  --shadow-lg: 0 10px 30px rgba(15, 30, 41, 0.18), 0 3px 10px rgba(15, 30, 41, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="ocean"]:not([data-theme="light"]) {
+    --bg: #0E1720;
+    --panel: #16222D;
+    --text: #E4EEF5;
+    --muted: #7E9AAC;
+    --border: #233443;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 12px 34px rgba(0, 0, 0, 0.5), 0 3px 12px rgba(0, 0, 0, 0.35);
+  }
+}
+:root[data-palette="ocean"][data-theme="dark"] {
+  --bg: #0E1720;
+  --panel: #16222D;
+  --text: #E4EEF5;
+  --muted: #7E9AAC;
+  --border: #233443;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 34px rgba(0, 0, 0, 0.5), 0 3px 12px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-palette="forest"] {
+  --bg: #EFF4EC;
+  --panel: #F7FAF5;
+  --text: #1B2A17;
+  --muted: #6B7F63;
+  --border: #DDE7D7;
+  --shadow: 0 1px 3px rgba(20, 28, 17, 0.08), 0 6px 18px rgba(20, 28, 17, 0.08);
+  --shadow-lg: 0 10px 30px rgba(20, 28, 17, 0.18), 0 3px 10px rgba(20, 28, 17, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="forest"]:not([data-theme="light"]) {
+    --bg: #111A0F;
+    --panel: #1A2818;
+    --text: #E6EEE3;
+    --muted: #8CA084;
+    --border: #293A26;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 12px 34px rgba(0, 0, 0, 0.5), 0 3px 12px rgba(0, 0, 0, 0.35);
+  }
+}
+:root[data-palette="forest"][data-theme="dark"] {
+  --bg: #111A0F;
+  --panel: #1A2818;
+  --text: #E6EEE3;
+  --muted: #8CA084;
+  --border: #293A26;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 34px rgba(0, 0, 0, 0.5), 0 3px 12px rgba(0, 0, 0, 0.35);
+}
+
 * { box-sizing: border-box; }
 
 body {

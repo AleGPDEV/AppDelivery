@@ -75,6 +75,15 @@ settingsOverlay.innerHTML = `
         <h2>Diseño</h2>
         <p class="hint">El color y el logo se aplican en toda la app; el nombre de la tienda se usa en el pedido online.</p>
         <div class="field">
+          <label for="theme-palette-select">Estilo de la interfaz <span class="info-hint" tabindex="0">!<span class="info-hint-text">Se guarda en este navegador, no es una configuración del negocio -- cada persona elige la suya en su propia compu/celular, no afecta lo que ven los demás. El botón ☀️/🌙 de arriba sigue eligiendo claro u oscuro por separado.</span></span></label>
+          <select id="theme-palette-select">
+            <option value="warm">Cálido (clásico)</option>
+            <option value="slate">Pizarra (gris frío)</option>
+            <option value="ocean">Océano (azul)</option>
+            <option value="forest">Bosque (verde)</option>
+          </select>
+        </div>
+        <div class="field">
           <label for="brand-store-name">Nombre de la tienda</label>
           <input type="text" id="brand-store-name" placeholder="Ej: Sushi Meshi Pando">
         </div>
@@ -131,6 +140,7 @@ const newPaymentMethodNameEl = document.getElementById('new-payment-method-name'
 const newPaymentMethodCashEl = document.getElementById('new-payment-method-cash');
 const addPaymentMethodBtn = document.getElementById('add-payment-method-btn');
 const fieldConfigListEl = document.getElementById('field-config-list');
+const themePaletteSelectEl = document.getElementById('theme-palette-select');
 const brandStoreNameEl = document.getElementById('brand-store-name');
 const brandPrimaryColorEl = document.getElementById('brand-primary-color');
 const brandSecondaryColorEl = document.getElementById('brand-secondary-color');
@@ -351,6 +361,14 @@ function updateBranding(fields) {
   formConfig = { ...formConfig, branding: { ...branding(), ...fields } };
   socket.emit('form-config:update', formConfig);
 }
+
+// Estilo de la interfaz (paleta): no es formConfig, vive en localStorage
+// por dispositivo (ver theme.js) -- se inicializa una sola vez acá, sin
+// escuchar snapshots del servidor.
+if (window.getPalette) themePaletteSelectEl.value = window.getPalette();
+themePaletteSelectEl.addEventListener('change', () => {
+  if (window.setPalette) window.setPalette(themePaletteSelectEl.value);
+});
 
 brandStoreNameEl.addEventListener('change', () => {
   updateBranding({ storeName: brandStoreNameEl.value.trim() || DEFAULT_BRANDING.storeName });
