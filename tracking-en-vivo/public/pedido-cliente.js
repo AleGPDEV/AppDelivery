@@ -521,6 +521,9 @@ function sendOrderToBusinessWhatsapp(orderNumber, payload, items) {
   if (payload.name) lines.push(`Nombre: ${payload.name}`);
   lines.push(`Celular: ${payload.phone}`);
   lines.push(payload.pickup ? 'Retira en el local' : `Envío a: ${payload.label || 'dirección a confirmar'}`);
+  if (!payload.pickup && typeof payload.lat === 'number' && typeof payload.lng === 'number') {
+    lines.push(`📍 https://www.google.com/maps?q=${payload.lat},${payload.lng}`);
+  }
   lines.push('');
   lines.push('*Productos:*');
   let total = 0;
