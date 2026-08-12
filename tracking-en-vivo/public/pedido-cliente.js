@@ -512,8 +512,10 @@ function whatsappLink(phone) {
 // WhatsApp -- no existe una forma de mandar un WhatsApp sin que la persona
 // lo confirme) -- además intenta abrirlo solo, como mejor esfuerzo, por si
 // el navegador lo deja pasar viniendo de la misma interacción del botón
-// "Enviar pedido".
-function sendOrderToBusinessWhatsapp(orderNumber, payload, items) {
+// "Enviar pedido". Termina con el mismo link de seguimiento en vivo que ya
+// se muestra en la pantalla de confirmación (`checkoutTrackLinkEl`) -- así
+// el negocio también lo tiene a mano sin tener que pedírselo al cliente.
+function sendOrderToBusinessWhatsapp(orderNumber, payload, items, orderId) {
   const wa = whatsappLink(formConfig.businessWhatsapp);
   if (!wa) { checkoutWhatsappLinkEl.style.display = 'none'; return; }
 
@@ -539,6 +541,10 @@ function sendOrderToBusinessWhatsapp(orderNumber, payload, items) {
     const value = payload.custom && payload.custom[f.key];
     if (value) lines.push(`${f.label}: ${value}`);
   });
+  if (orderId) {
+    lines.push('');
+    lines.push(`🔴 Seguimiento en vivo: ${location.origin}/seguimiento.html?id=${orderId}`);
+  }
 
   const link = `${wa}?text=${encodeURIComponent(lines.join('\n'))}`;
   checkoutWhatsappLinkEl.href = link;
@@ -631,7 +637,7 @@ checkoutSubmitBtn.addEventListener('click', async () => {
       checkoutTrackLinkEl.href = `/seguimiento.html?id=${res.id}`;
       checkoutTrackLinkEl.style.display = 'inline-block';
     }
-    sendOrderToBusinessWhatsapp(res.orderNumber, payload, items);
+    sendOrderToBusinessWhatsapp(res.orderNumber, payload, items, res.id);
   });
 });
 
