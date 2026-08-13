@@ -876,7 +876,14 @@ async function mount(root) {
   }
 
   function renderAssignedCards() {
-    const assignedDriverIds = new Set(Array.from(Store.getOrders().values()).map((o) => o.assignedTo).filter(Boolean));
+    // Solo pedidos activos (no entregados/archivados) mantienen la tarjeta --
+    // si no, un delivery desconectado con historial viejo (entregas de hace
+    // rato) queda pegado en pantalla para siempre.
+    const assignedDriverIds = new Set(
+      Array.from(Store.getOrders().values())
+        .filter((o) => o.assignedTo && o.status !== 'entregado' && !o.archivedAt)
+        .map((o) => o.assignedTo)
+    );
     const driverIds = new Set([...assignedDriverIds, ...Store.getDrivers().keys()]);
 
     assignedEmptyEl.hidden = driverIds.size > 0;

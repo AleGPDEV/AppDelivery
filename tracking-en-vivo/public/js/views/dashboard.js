@@ -226,7 +226,15 @@ async function mount(root) {
   }
 
   function renderDriverCards() {
-    const assignedDriverIds = new Set(Array.from(Store.getOrders().values()).map((o) => o.assignedTo).filter(Boolean));
+    // Un pedido entregado y ya rendido ("Cerrar rendición") no cuenta para
+    // mantener la tarjeta -- si no, un delivery desconectado con historial
+    // viejo (entregas de hace rato, ya rendidas) queda pegado en pantalla
+    // para siempre, aunque ya se le haya cerrado la rendición.
+    const assignedDriverIds = new Set(
+      Array.from(Store.getOrders().values())
+        .filter((o) => o.assignedTo && (o.status !== 'entregado' || !o.reconciledAt) && !o.archivedAt)
+        .map((o) => o.assignedTo)
+    );
     const driverIds = new Set([...assignedDriverIds, ...Store.getDrivers().keys()]);
 
     cashEmptyEl.hidden = driverIds.size > 0;
